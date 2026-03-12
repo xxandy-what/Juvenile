@@ -1,0 +1,92 @@
+# =============================================================================
+# config.yaml
+# ===========
+# Central configuration for the Next-Generation SOA Juvenile Mortality
+# Table pipeline.  Edit this file to adapt the toolset to a new data source
+# or study scope — no changes to module source code required.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Data ingestion
+# ---------------------------------------------------------------------------
+data:
+  # Absolute or relative path to the source file (TSV / CSV / Parquet)
+  source_path: "C:/Users/haofe/PycharmProjects/Juvenile/Juvenile_cleaned.txt"
+  # Parquet cache written after the first load; subsequent runs skip the CSV
+  parquet_cache: "data/juvenile_cache.parquet"
+  # Field delimiter for text files (\t = tab-delimited)
+  sep: "\t"
+  # Maximum issue age for the juvenile study scope (0–17)
+  juvenile_max_issue_age: 17
+
+# ---------------------------------------------------------------------------
+# Module 2 — Actuarial Metrics
+# ---------------------------------------------------------------------------
+ae_ratios:
+  # Dimensions to group A/E ratios by (primary analysis cut)
+  groupby: ["Sex_Clean", "Attained_Age_Group"]
+  # Additional single-dimension cut for age-level A/E
+  age_groupby: ["Attained_Age"]
+  # Minimum policy exposure; cells below this are dropped
+  min_exposure_cnt: 0.0
+  # Confidence interval level
+  ci_level: 0.95
+  # PCA settings for structural comparison
+  pca:
+    n_components: 4
+    # Proxy split: low-duration = "juvenile-like", high-duration = "adult-like"
+    duration_split: 5
+
+# ---------------------------------------------------------------------------
+# Module 3 — Modeling Engine
+# ---------------------------------------------------------------------------
+feature_importance:
+  target: "AE_Count"
+  model_type: "gbm"          # "gbm" or "rf"
+  n_estimators: 150
+  cv_folds: 3
+  compute_shap: true         # Requires `pip install shap`
+  shap_sample_size: 500      # Rows sampled for SHAP (speed vs. precision)
+  feature_dims:
+    - Attained_Age
+    - Duration
+    - Sex_Clean
+    - Smoker_Status
+    - Insurance_Plan
+    - Face_Amount_Band_Numeric
+    - Slct_Ult_Ind
+    - SOA_Antp_Lvl_TP
+
+gam:
+  # Univariate smooth (Age only)
+  age_col: "Attained_Age"
+  basis: "count"             # "count" or "amount"
+  n_splines: 15
+  # Set tensor_terms to a list of columns (e.g. ["Duration"]) or null
+  tensor_terms: null
+  # Tensor-product model settings (Age × Duration)
+  tensor:
+    tensor_terms: ["Duration"]
+    n_splines: 10
+
+# ---------------------------------------------------------------------------
+# Module 4 — Validation & Guardrails
+# ---------------------------------------------------------------------------
+validation:
+  # Age at which blending into the adult table begins
+  join_age: 25
+  # Number of ages over which to blend
+  blend_ages: 5
+  # Synthetic adult reference: Makeham-style log-linear growth rate
+  adult_growth_rate: 0.085
+  # Number of adult ages to project for the reference table
+  adult_projection_ages: 20
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+outputs:
+  tables_dir: "outputs/tables"
+  figures_dir: "outputs/figures"
+  # Save key output tables as CSV
+  save_tables: true
