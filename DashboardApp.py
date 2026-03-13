@@ -11,6 +11,7 @@ import os
 import streamlit as st
 import pandas as pd
 import numpy as np
+import re
 from typing import Dict, List, Tuple, Optional
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -155,6 +156,30 @@ def load_local(path: str) -> pd.DataFrame:
     df = df.replace({"": np.nan})
 
     return coerce_types_fast(df)
+
+def safe_filename(text: str) -> str:
+    text = re.sub(r"[^\w\-\.]+", "_", str(text))
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text
+
+@st.cache_data(show_spinner=False)
+def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
+    return df.to_csv(index=False).encode("utf-8")
+
+def build_filtered_filename(source_name: str, df_filtered: pd.DataFrame, num_ranges: Dict[str, Tuple[float, float]]) -> str:
+    base = os.path.splitext(source_name)[0]
+    parts = [base, "filtered"]
+
+    # nice year tag if year is one of the active numeric filters
+    if "Observation_Year" in num_ranges:
+        lo, hi = num_ranges["Observation_Year"]
+        if int(lo) == int(hi):
+            parts.append(f"year_{int(lo)}")
+        else:
+            parts.append(f"years_{int(lo)}_{int(hi)}")
+
+    parts.append(f"rows_{len(df_filtered)}")
+    return safe_filename("_".join(parts) + ".csv")
 
 def _category_options_including_NA(df: pd.DataFrame, col: str) -> List[str]:
     """
@@ -508,9 +533,19 @@ with st.sidebar:
             cat_filters[col] = selected
 
 df_f = apply_report_filters(df, cat_filters, num_ranges)
+
 if df_f.shape[0] == 0:
     st.error("No rows left after filters. Relax your filters.")
-    st.stop()
+else:
+    filtered_filename = build_filtered_filename(source_name, df_f, num_ranges)
+    filtered_csv = df_to_csv_bytes(df_f)
+
+    st.download_button(
+        label="Download filtered data (.csv)",
+        data=filtered_csv,
+        file_name=filtered_filename,
+        mime="text/csv",
+    )
 
 st.write("")
 m1, m2 = st.columns(2)
@@ -549,7 +584,11 @@ with tab_chart:
         line_metric_candidates = list(dict.fromkeys(line_metric_candidates))
         line_metric = st.selectbox("Line metric", options=line_metric_candidates, index=(line_metric_candidates.index("A/E (Count)") if "A/E (Count)" in line_metric_candidates else 0))
 
-        line_category_raw = st.selectbox("Split lines by", options=["(none)"] + cat_axis_fields, index=0)
+        line_category_raw = st.selectbox(
+            "Split lines by",
+            options=["(none)"] + cat_axis_fields + ["Observation_Year"],
+            index=0
+        )
         raw_line_category = None if line_category_raw == "(none)" else line_category_raw
 
     with c3:
