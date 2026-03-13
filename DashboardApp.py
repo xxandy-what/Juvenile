@@ -584,7 +584,11 @@ with tab_chart:
         line_metric_candidates = list(dict.fromkeys(line_metric_candidates))
         line_metric = st.selectbox("Line metric", options=line_metric_candidates, index=(line_metric_candidates.index("A/E (Count)") if "A/E (Count)" in line_metric_candidates else 0))
 
-        line_category_raw = st.selectbox("Split lines by", options=["(none)"] + cat_axis_fields, index=0)
+        line_category_raw = st.selectbox(
+            "Split lines by",
+            options=["(none)"] + cat_axis_fields + ["Observation_Year"],
+            index=0
+        )
         raw_line_category = None if line_category_raw == "(none)" else line_category_raw
 
     with c3:
