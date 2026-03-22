@@ -17,11 +17,33 @@ st.set_page_config(page_title="SOA-style Mortality Explorer (DuckDB)", layout="w
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.2rem; padding-bottom: 1rem;}
-    div[data-testid="stMetric"] {background: transparent; border: 1px solid #e6e6e6; padding: 0.6rem 0.8rem; border-radius: 4px;}
+    .app-header-band {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 55pt;
+        background: white;
+        z-index: 999;
+    }
+
+    .block-container {
+        padding-top: calc(55pt + 1.2rem);
+        padding-bottom: 1rem;
+    }
+
+    div[data-testid="stMetric"] {
+        background: transparent;
+        border: 1px solid #e6e6e6;
+        padding: 0.6rem 0.8rem;
+        border-radius: 4px;
+    }
+
     .stTabs [data-baseweb="tab-list"] {gap: 0.5rem;}
     .stTabs [data-baseweb="tab"] {padding-left: 0.7rem; padding-right: 0.7rem;}
     </style>
+
+    <div class="app-header-band"></div>
     """,
     unsafe_allow_html=True,
 )
