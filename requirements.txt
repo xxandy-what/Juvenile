@@ -4,3 +4,7 @@ numpy>=1.24
 plotly>=5.20
 pyarrow
 duckdb
+matplotlib
+statsmodels
+IPyKernel
+scikit-learn

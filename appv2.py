@@ -1,3 +1,4 @@
+
 import os
 import re
 from typing import Dict, List, Optional, Tuple
@@ -17,11 +18,26 @@ st.set_page_config(page_title="SOA-style Mortality Explorer (DuckDB)", layout="w
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.2rem; padding-bottom: 1rem;}
-    div[data-testid="stMetric"] {background: transparent; border: 1px solid #e6e6e6; padding: 0.6rem 0.8rem; border-radius: 4px;}
+    .app-header-band {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 0pt;
+        background: white;
+        z-index: 999;
+    }
+
+    .block-container {
+        padding-top: calc(55pt + 1.2rem);
+        padding-bottom: 1rem;
+    }
+
     .stTabs [data-baseweb="tab-list"] {gap: 0.5rem;}
     .stTabs [data-baseweb="tab"] {padding-left: 0.7rem; padding-right: 0.7rem;}
     </style>
+
+    <div class="app-header-band"></div>
     """,
     unsafe_allow_html=True,
 )
@@ -56,13 +72,6 @@ NUM_COLUMNS = [
     "Death_Count",
     "ExpDth_VBT2015_Cnt",
     "ExpDth_VBT2015_Amt",
-    "ExpDth_VBT2015wMI_Cnt",
-    "ExpDth_VBT2015wMI_Amt",
-    "Cen2MomP1wMI_Amt",
-    "Cen2MomP2wMI_Amt",
-    "Cen3MomP1wMI_Amt",
-    "Cen3MomP2wMI_Amt",
-    "Cen3MomP3wMI_Amt",
 ]
 
 ALL_KNOWN = set(CAT_COLUMNS + NUM_COLUMNS)
@@ -74,11 +83,14 @@ FRIENDLY = {
     "Smoker_Status": "Smoker Status",
     "Insurance_Plan": "Insurance Plan",
     "Issue_Age": "Issue Age",
+    "Issue_Age_Group": "Issue Age Group",
     "Duration": "Duration",
+    "Duration_Group": "Duration Group",
     "Face_Amount_Band": "Face Amount Band",
     "Face_Amount_Band_Label": "Face Amount Band",
     "Issue_Year": "Issue Year",
     "Attained_Age": "Attained Age",
+    "Attained_Age_Group": "Attained Age Group",
     "SOA_Antp_Lvl_TP": "Anticipated Level Term Period",
     "SOA_Guar_Lvl_TP": "Guaranteed Level Term Period",
     "SOA_Post_Lvl_Ind": "Post Level Term Indicator",
@@ -92,13 +104,6 @@ FRIENDLY = {
     "Death_Count": "Actual Deaths - Count",
     "ExpDth_VBT2015_Cnt": "Expected Deaths (VBT2015) - Count",
     "ExpDth_VBT2015_Amt": "Expected Deaths (VBT2015) - Amount",
-    "ExpDth_VBT2015wMI_Cnt": "Expected Deaths (VBT2015 + MI) - Count",
-    "ExpDth_VBT2015wMI_Amt": "Expected Deaths (VBT2015 + MI) - Amount",
-    "Cen2MomP1wMI_Amt": "2nd Central Moment (Part 1, Amount, w/MI)",
-    "Cen2MomP2wMI_Amt": "2nd Central Moment (Part 2, Amount, w/MI)",
-    "Cen3MomP1wMI_Amt": "3rd Central Moment (Part 1, Amount, w/MI)",
-    "Cen3MomP2wMI_Amt": "3rd Central Moment (Part 2, Amount, w/MI)",
-    "Cen3MomP3wMI_Amt": "3rd Central Moment (Part 3, Amount, w/MI)",
 }
 
 FIELD_NOTES = {
@@ -125,8 +130,6 @@ FIELD_NOTES = {
     "Death_Count": "Actual death count.",
     "ExpDth_VBT2015_Cnt": "Expected deaths on count basis = XPO_C * q.",
     "ExpDth_VBT2015_Amt": "Expected deaths on amount basis = XPO_C * q * FA.",
-    "ExpDth_VBT2015wMI_Cnt": "Expected deaths with mortality improvement = XPO_C * q * ((1-MI)^(ObservationYear-2015)).",
-    "ExpDth_VBT2015wMI_Amt": "Expected deaths with mortality improvement and amount = XPO_C * q * ((1-MI)^(ObservationYear-2015)) * FA.",
 }
 
 AGE_IND_MAP = {
@@ -163,15 +166,34 @@ INT_FIELDS = {"Observation_Year", "Issue_Age", "Attained_Age", "Duration", "Issu
 
 PAGE_SPECS = [
     ("Observation Year", "Observation_Year", "Observation_Year"),
+    ("Issue Year", "Issue_Year", "Issue_Year"),
     ("Issue Age", "Issue_Age", "Issue_Age"),
     ("Duration", "Duration", "Duration"),
     ("Attained Age", "Attained_Age", "Attained_Age"),
     ("Face Amount", "Face_Amount_Band_Label", "Face_Amount_Band"),
 ]
 
-DEFAULT_FILTER_FIELDS = ["Observation_Year", "Sex", "Smoker_Status", "Insurance_Plan", "SOA_Post_Lvl_Ind"]
+DEFAULT_FILTER_FIELDS = ["Smoker_Status", "SOA_Post_Lvl_Ind", "Insurance_Plan", "Attained_Age"]
 
+GRAPH_FILTER_FIELDS = [
+    "Observation_Year",
+    "Sex",
+    "Issue_Age_Group",
+    "Duration_Group",
+    "Attained_Age_Group",
+    "Face_Amount_Band",
+    "Preferred_Class",
+    "Insurance_Plan",
+]
 
+DURATION_GROUP_OPTIONS = ["1", "2", "3", "4-5", "6-10", "11-15", "16-20", "21-25", "26+"]
+DURATION_GROUP_ORDER = {v: i for i, v in enumerate(DURATION_GROUP_OPTIONS)}
+
+ATTAINED_AGE_GROUP_OPTIONS = ["0"] + [f"{i}-{i+4}" for i in range(1, 95, 5)] + ["95+"]
+
+# ---------------------------
+# Paths
+# ---------------------------
 def builtin_data_candidates() -> List[str]:
     app_dir = os.path.dirname(os.path.abspath(__file__))
     cwd = os.getcwd()
@@ -245,6 +267,56 @@ def source_sql(path: str, nrows: Optional[int] = None) -> str:
     return base
 
 
+def unique_preserve_order(items: List[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for item in items:
+        if item not in seen:
+            out.append(item)
+            seen.add(item)
+    return out
+
+def is_ae_metric_label(label: str) -> bool:
+    s = str(label)
+    return ("A/E (Count" in s) or ("A/E (Amount" in s)
+
+
+def is_year_metric_label(label: str) -> bool:
+    s = str(label).strip()
+    first = s.split(" | ")[0].strip()
+    return first in {"Observation_Year", "Observation Year", "Issue_Year", "Issue Year"}
+
+
+def format_number_for_display(x, pct: bool = False) -> str:
+    if pd.isna(x):
+        return ""
+    try:
+        x = float(x)
+    except Exception:
+        return str(x)
+
+    if pct:
+        return f"{x:.2%}"
+
+    if float(x).is_integer():
+        return f"{x:,.0f}"
+    return f"{x:,.4f}".rstrip("0").rstrip(".")
+
+
+def format_pivot_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    for col in out.columns:
+        if not pd.api.types.is_numeric_dtype(out[col]):
+            continue
+
+        if is_ae_metric_label(col):
+            out[col] = out[col].map(lambda v: format_number_for_display(v, pct=True))
+        elif not is_year_metric_label(col):
+            out[col] = out[col].map(format_number_for_display)
+
+    return out
+
 def label_display_value(col: str, value: Optional[str]) -> Optional[str]:
     if value is None or pd.isna(value):
         return None
@@ -266,7 +338,11 @@ def selected_display_to_raw_values(col: str, selected: List[str]) -> Tuple[bool,
         if col == "Age_Ind":
             raw_vals.append(REVERSE_AGE_IND_MAP.get(x, x))
         elif col in {"Face_Amount_Band", "Face_Amount_Band_Label"}:
-            raw_vals.append(REVERSE_FACE_BAND_MAP.get(x, x))
+            mapped = REVERSE_FACE_BAND_MAP.get(x)
+            if mapped is not None:
+                raw_vals.extend([mapped, x])
+            else:
+                raw_vals.append(x)
         else:
             raw_vals.append(x)
     raw_vals = list(dict.fromkeys(raw_vals))
@@ -288,6 +364,72 @@ def freeze_num_ranges(num_ranges: Dict[str, Tuple[float, float]]) -> Tuple[Tuple
     return tuple(items)
 
 
+def combine_category_filters(*filter_dicts: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    merged: Dict[str, List[str]] = {}
+    for fd in filter_dicts:
+        for col, vals in fd.items():
+            if not vals:
+                continue
+            vals = list(dict.fromkeys([str(v) for v in vals]))
+            if col not in merged:
+                merged[col] = vals
+            else:
+                merged[col] = [v for v in merged[col] if v in set(vals)]
+    return merged
+
+
+def filter_value_expr_sql(col: str) -> str:
+    if col == "Observation_Year":
+        return f"CAST(TRY_CAST({sql_ident('Observation_Year')} AS BIGINT) AS VARCHAR)"
+    if col == "Issue_Age_Group":
+        ident = sql_ident("Issue_Age")
+        num_expr = f"TRY_CAST({ident} AS BIGINT)"
+        return (
+            f"CASE "
+            f"WHEN {num_expr} IS NULL THEN NULL "
+            f"WHEN {num_expr} = 0 THEN '0' "
+            f"WHEN {num_expr} >= 95 THEN '95+' "
+            f"ELSE CAST(((CAST(FLOOR(({num_expr}-1) / 5.0) AS BIGINT) * 5) + 1) AS VARCHAR) "
+            f"|| '-' || "
+            f"CAST(((CAST(FLOOR(({num_expr}-1) / 5.0) AS BIGINT) * 5) + 5) AS VARCHAR) "
+            f"END"
+        )
+    if col == "Duration_Group":
+        ident = sql_ident("Duration")
+        num_expr = f"TRY_CAST({ident} AS BIGINT)"
+        return (
+            f"CASE "
+            f"WHEN {num_expr} IS NULL THEN NULL "
+            f"WHEN {num_expr} = 1 THEN '1' "
+            f"WHEN {num_expr} = 2 THEN '2' "
+            f"WHEN {num_expr} = 3 THEN '3' "
+            f"WHEN {num_expr} BETWEEN 4 AND 5 THEN '4-5' "
+            f"WHEN {num_expr} BETWEEN 6 AND 10 THEN '6-10' "
+            f"WHEN {num_expr} BETWEEN 11 AND 15 THEN '11-15' "
+            f"WHEN {num_expr} BETWEEN 16 AND 20 THEN '16-20' "
+            f"WHEN {num_expr} BETWEEN 21 AND 25 THEN '21-25' "
+            f"WHEN {num_expr} >= 26 THEN '26+' "
+            f"END"
+        )
+    if col == "Attained_Age_Group":
+        ident = sql_ident("Attained_Age")
+        num_expr = f"TRY_CAST({ident} AS BIGINT)"
+        return (
+            f"CASE "
+            f"WHEN {num_expr} IS NULL THEN NULL "
+            f"WHEN {num_expr} = 0 THEN '0' "
+            f"WHEN {num_expr} >= 95 THEN '95+' "
+            f"ELSE CAST(((CAST(FLOOR(({num_expr}-1) / 5.0) AS BIGINT) * 5) + 1) AS VARCHAR) "
+            f"|| '-' || "
+            f"CAST(((CAST(FLOOR(({num_expr}-1) / 5.0) AS BIGINT) * 5) + 5) AS VARCHAR) "
+            f"END"
+        )
+    if col == "Face_Amount_Band_Label":
+        return f"CAST({sql_ident('Face_Amount_Band')} AS VARCHAR)"
+    raw_col = "Face_Amount_Band" if col == "Face_Amount_Band_Label" else col
+    return f"CAST({sql_ident(raw_col)} AS VARCHAR)"
+
+
 def build_where_sql(
     cat_filters_frozen: Tuple[Tuple[str, Tuple[str, ...]], ...],
     num_ranges_frozen: Tuple[Tuple[str, float, float], ...],
@@ -296,15 +438,15 @@ def build_where_sql(
 
     for col, selected in cat_filters_frozen:
         want_missing, raw_values = selected_display_to_raw_values(col, list(selected))
-        ident = sql_ident(col if col != "Face_Amount_Band_Label" else "Face_Amount_Band")
+        expr = filter_value_expr_sql(col)
         if raw_values and want_missing:
             values_sql = ", ".join(sql_literal(v) for v in raw_values)
-            clauses.append(f"({ident} IS NULL OR CAST({ident} AS VARCHAR) IN ({values_sql}))")
+            clauses.append(f"(({expr}) IS NULL OR ({expr}) IN ({values_sql}))")
         elif raw_values:
             values_sql = ", ".join(sql_literal(v) for v in raw_values)
-            clauses.append(f"CAST({ident} AS VARCHAR) IN ({values_sql})")
+            clauses.append(f"({expr}) IN ({values_sql})")
         elif want_missing:
-            clauses.append(f"{ident} IS NULL")
+            clauses.append(f"({expr}) IS NULL")
 
     for col, lo, hi in num_ranges_frozen:
         ident = sql_ident(col)
@@ -398,11 +540,88 @@ def ae_requirements(metric: str) -> Tuple[str, str]:
         return "Death_Count", "ExpDth_VBT2015_Cnt"
     if metric == "A/E (Amount)":
         return "Death_Claim_Amount", "ExpDth_VBT2015_Amt"
-    if metric == "A/E (Count, w/MI)":
-        return "Death_Count", "ExpDth_VBT2015wMI_Cnt"
-    if metric == "A/E (Amount, w/MI)":
-        return "Death_Claim_Amount", "ExpDth_VBT2015wMI_Amt"
     raise KeyError(metric)
+
+
+def natural_text_sort_key(value: str) -> Tuple:
+    text = str(value)
+    if text == "(Missing)":
+        return (999999, text)
+    try:
+        return (int(text), "")
+    except Exception:
+        pass
+    pieces = re.split(r"(\d+)", text)
+    out = []
+    for piece in pieces:
+        if piece.isdigit():
+            out.append(int(piece))
+        else:
+            out.append(piece.lower())
+    return (0, *out)
+
+
+def age_group_sort_key(value: str) -> Tuple[int, int]:
+    text = str(value)
+    if text == "(Missing)":
+        return (999, 0)
+    if text == "0":
+        return (0, 0)
+    if text.endswith("+"):
+        try:
+            return (int(text[:-1]), 1)
+        except Exception:
+            return (998, 0)
+    if "-" in text:
+        try:
+            start = int(text.split("-")[0])
+            return (start, 0)
+        except Exception:
+            return (998, 0)
+    return (998, 0)
+
+
+def sort_display_values(col: str, values: List[str]) -> List[str]:
+    vals = [str(v) for v in values]
+    if col in {"Face_Amount_Band", "Face_Amount_Band_Label"}:
+        order = {v: i for i, v in enumerate(FACE_BAND_ORDER)}
+        return sorted(vals, key=lambda x: (999 if x == "(Missing)" else order.get(x, 998), x))
+    if col == "Observation_Year":
+        return sorted(vals, key=natural_text_sort_key)
+    if col in {"Issue_Age_Group", "Attained_Age_Group"}:
+        return sorted(vals, key=age_group_sort_key)
+    if col == "Duration_Group":
+        return sorted(vals, key=lambda x: (999 if x == "(Missing)" else DURATION_GROUP_ORDER.get(x, 998), x))
+    if col == "Preferred_Class":
+        pref_order = {"1": 1, "2": 2, "3": 3, "4": 4, "NA": 98, "U": 99}
+        return sorted(vals, key=lambda x: (999 if x == "(Missing)" else pref_order.get(x, 97), x))
+    return sorted(vals, key=natural_text_sort_key)
+
+
+def ensure_multiselect_state(key: str, options: List[str], default_values: Optional[List[str]] = None) -> None:
+    valid_options = [str(x) for x in options]
+    default_values = valid_options if default_values is None else [str(x) for x in default_values if str(x) in valid_options]
+    current = st.session_state.get(key)
+    if current is None:
+        st.session_state[key] = default_values
+        return
+    current_valid = [str(x) for x in current if str(x) in valid_options]
+    st.session_state[key] = current_valid if current_valid else default_values
+
+
+def build_trace_labels(df: pd.DataFrame, trace_cols: List[str]) -> pd.Series:
+    trace_cols = unique_preserve_order([c for c in trace_cols if c in df.columns])
+    if not trace_cols:
+        return pd.Series(["Series"] * len(df), index=df.index, dtype="string")
+
+    trace_df = df.loc[:, trace_cols].copy()
+    for col in trace_df.columns:
+        trace_df[col] = trace_df[col].fillna("(Missing)").astype(str)
+
+    if trace_df.shape[1] == 1:
+        return trace_df.iloc[:, 0].astype("string")
+
+    return trace_df.agg(lambda row: " | ".join(row.astype(str)), axis=1).astype("string")
 
 
 @st.cache_data(show_spinner=False)
@@ -431,11 +650,34 @@ def row_count_source(path: str, nrows: Optional[int]) -> int:
 def category_options_query(path: str, nrows: Optional[int], col: str) -> List[str]:
     con = duckdb.connect()
     src = source_sql(path, nrows)
-    ident = sql_ident(col if col != "Face_Amount_Band_Label" else "Face_Amount_Band")
-    sql = f"SELECT DISTINCT CAST({ident} AS VARCHAR) AS v FROM {src} WHERE {ident} IS NOT NULL ORDER BY 1"
-    vals = [row[0] for row in con.execute(sql).fetchall()]
-    display = sorted(list(dict.fromkeys(label_display_value(col, v) for v in vals if v is not None)))
-    null_count = con.execute(f"SELECT COUNT(*) FROM {src} WHERE {ident} IS NULL").fetchone()[0]
+    expr = filter_value_expr_sql(col)
+    sql = f"SELECT DISTINCT {expr} AS v FROM {src} ORDER BY 1"
+    vals = [row[0] for row in con.execute(sql).fetchall() if row[0] is not None]
+    display = [label_display_value(col, v) if col in {'Age_Ind', 'Face_Amount_Band', 'Face_Amount_Band_Label'} else str(v) for v in vals]
+    display = sort_display_values(col, list(dict.fromkeys(display)))
+    null_count = con.execute(f"SELECT COUNT(*) FROM {src} WHERE ({expr}) IS NULL").fetchone()[0]
+    if null_count > 0:
+        return ["(Missing)"] + display
+    return display
+
+
+@st.cache_data(show_spinner=False)
+def category_options_filtered_query(
+    path: str,
+    nrows: Optional[int],
+    col: str,
+    cat_filters_frozen: Tuple[Tuple[str, Tuple[str, ...]], ...],
+    num_ranges_frozen: Tuple[Tuple[str, float, float], ...],
+) -> List[str]:
+    con = duckdb.connect()
+    src = source_sql(path, nrows)
+    where_sql = build_where_sql(cat_filters_frozen, num_ranges_frozen)
+    expr = filter_value_expr_sql(col)
+    sql = f"SELECT DISTINCT {expr} AS v FROM {src}{where_sql} ORDER BY 1"
+    vals = [row[0] for row in con.execute(sql).fetchall() if row[0] is not None]
+    display = [label_display_value(col, v) if col in {'Age_Ind', 'Face_Amount_Band', 'Face_Amount_Band_Label'} else str(v) for v in vals]
+    display = sort_display_values(col, list(dict.fromkeys(display)))
+    null_count = con.execute(f"SELECT COUNT(*) FROM {src}{where_sql} AND ({expr}) IS NULL" if where_sql else f"SELECT COUNT(*) FROM {src} WHERE ({expr}) IS NULL").fetchone()[0]
     if null_count > 0:
         return ["(Missing)"] + display
     return display
@@ -534,12 +776,12 @@ def build_pivot_base_duckdb(
         "count": "COUNT",
         "min": "MIN",
         "max": "MAX",
-        "nunique": "COUNT(DISTINCT",
     }
     chosen = agg_map.get(aggfunc, "SUM")
 
     metric_selects: List[str] = []
-    for v in values:
+    value_fields = unique_preserve_order(list(values))
+    for v in value_fields:
         ident = sql_ident(v)
         alias = sql_ident(v)
         if aggfunc == "nunique":
@@ -547,16 +789,18 @@ def build_pivot_base_duckdb(
         else:
             metric_selects.append(f"{chosen}({ident}) AS {alias}")
 
+    helper_aliases: Dict[str, str] = {}
     if add_measures:
-        for v in [
+        raw_measure_cols = [
             "Death_Count",
             "Death_Claim_Amount",
             "ExpDth_VBT2015_Cnt",
             "ExpDth_VBT2015_Amt",
-            "ExpDth_VBT2015wMI_Cnt",
-            "ExpDth_VBT2015wMI_Amt",
-        ]:
-            metric_selects.append(f"SUM({sql_ident(v)}) AS {sql_ident(v)}")
+        ]
+        for v in raw_measure_cols:
+            helper_alias = f"__ae__{v}"
+            helper_aliases[v] = helper_alias
+            metric_selects.append(f"SUM({sql_ident(v)}) AS {sql_ident(helper_alias)}")
 
     if not metric_selects:
         return pd.DataFrame()
@@ -568,14 +812,13 @@ def build_pivot_base_duckdb(
     g = con.execute(sql).df()
 
     if add_measures:
-        if {"Death_Count", "ExpDth_VBT2015_Cnt"}.issubset(g.columns):
-            g["A/E (Count)"] = safe_div(g["Death_Count"], g["ExpDth_VBT2015_Cnt"])
-        if {"Death_Claim_Amount", "ExpDth_VBT2015_Amt"}.issubset(g.columns):
-            g["A/E (Amount)"] = safe_div(g["Death_Claim_Amount"], g["ExpDth_VBT2015_Amt"])
-        if {"Death_Count", "ExpDth_VBT2015wMI_Cnt"}.issubset(g.columns):
-            g["A/E (Count, w/MI)"] = safe_div(g["Death_Count"], g["ExpDth_VBT2015wMI_Cnt"])
-        if {"Death_Claim_Amount", "ExpDth_VBT2015wMI_Amt"}.issubset(g.columns):
-            g["A/E (Amount, w/MI)"] = safe_div(g["Death_Claim_Amount"], g["ExpDth_VBT2015wMI_Amt"])
+        if {"Death_Count", "ExpDth_VBT2015_Cnt"}.issubset(helper_aliases):
+            g["A/E (Count)"] = safe_div(g[helper_aliases["Death_Count"]], g[helper_aliases["ExpDth_VBT2015_Cnt"]])
+        if {"Death_Claim_Amount", "ExpDth_VBT2015_Amt"}.issubset(helper_aliases):
+            g["A/E (Amount)"] = safe_div(g[helper_aliases["Death_Claim_Amount"]], g[helper_aliases["ExpDth_VBT2015_Amt"]])
+        helper_cols = [alias for alias in helper_aliases.values() if alias in g.columns]
+        if helper_cols:
+            g = g.drop(columns=helper_cols)
 
     return g
 
@@ -600,20 +843,20 @@ def summarize_for_chart_duckdb(
     con = duckdb.connect()
     src = source_sql(path, nrows)
 
-    extra_cat_filters = dict(cat_filters_frozen)
+    merged_cat = {k: list(v) for k, v in cat_filters_frozen}
     if split1 and keep_split1:
-        extra_cat_filters[split1] = tuple(keep_split1)
+        merged_cat = combine_category_filters(merged_cat, {split1: list(keep_split1)})
     if split2 and keep_split2:
-        extra_cat_filters[split2] = tuple(keep_split2)
+        merged_cat = combine_category_filters(merged_cat, {split2: list(keep_split2)})
 
-    where_sql = build_where_sql(tuple(sorted(extra_cat_filters.items())), num_ranges_frozen)
+    where_sql = build_where_sql(freeze_cat_filters(merged_cat), num_ranges_frozen)
     axis_label_expr, axis_sort_expr = axis_exprs(base_x_field, bin_size)
     split1_sql = split_expr(split1, "_split1")
     split2_sql = split_expr(split2, "_split2")
 
     # Bars
     bars = pd.DataFrame(columns=["_axis_value", "_axis_sort"])
-    bar_metrics_list = [m for m in bar_metrics if m in NUM_COLUMNS]
+    bar_metrics_list = [m for m in unique_preserve_order(list(bar_metrics)) if m in NUM_COLUMNS]
     if bar_metrics_list:
         bar_selects = [f"SUM({sql_ident(m)}) AS {sql_ident(m)}" for m in bar_metrics_list]
         bar_sql = (
@@ -624,7 +867,7 @@ def summarize_for_chart_duckdb(
         bars = con.execute(bar_sql).df()
 
     # Lines grouped in DuckDB, reshaped in pandas
-    line_metrics_list = list(line_metrics)
+    line_metrics_list = unique_preserve_order(list(line_metrics))
     ae_metrics = [m for m in line_metrics_list if m in AE_OPTIONS]
     other_metrics = [m for m in line_metrics_list if m not in AE_OPTIONS and m in NUM_COLUMNS]
 
@@ -680,8 +923,7 @@ def summarize_for_chart_duckdb(
                 trace_cols.append("_split1")
             if split2:
                 trace_cols.append("_split2")
-            lines[trace_cols] = lines[trace_cols].fillna("(Missing)").astype("string")
-            lines["_trace_label"] = lines[trace_cols].agg(" | ".join, axis=1)
+            lines["_trace_label"] = build_trace_labels(lines, trace_cols)
             support = lines.groupby("_trace_label", observed=True)["_support"].sum().sort_values(ascending=False)
             keep_traces = support.head(max(int(top_n_traces), 1)).index.tolist()
             lines = lines[lines["_trace_label"].isin(keep_traces)].copy()
@@ -702,9 +944,9 @@ def summarize_for_chart_duckdb(
 # Plotting / pivot shape helpers
 # ---------------------------
 def infer_bar_axis_label(bar_cols: List[str]) -> str:
-    if any(c in ("Death_Claim_Amount", "ExpDth_VBT2015_Amt", "ExpDth_VBT2015wMI_Amt", "Amount_Exposed") for c in bar_cols):
+    if any(c in ("Death_Claim_Amount", "ExpDth_VBT2015_Amt", "Amount_Exposed") for c in bar_cols):
         return "Bars (amount totals)"
-    if any(c in ("Death_Count", "ExpDth_VBT2015_Cnt", "ExpDth_VBT2015wMI_Cnt", "Policies_Exposed") for c in bar_cols):
+    if any(c in ("Death_Count", "ExpDth_VBT2015_Cnt", "Policies_Exposed") for c in bar_cols):
         return "Bars (count / exposure totals)"
     return "Bars"
 
@@ -734,11 +976,13 @@ def make_visual_figure(
         for metric in bar_metrics:
             if metric not in bars.columns:
                 continue
+            hover_fmt = ":.0f" if metric in {"Observation_Year", "Issue_Year"} else ":,.4f"
             fig.add_trace(
                 go.Bar(
                     x=bars["_axis_value"].astype(str),
                     y=bars[metric],
                     name=human(metric),
+                    hovertemplate=f"{x_title}: %{{x}}<br>{human(metric)}: %{{y{hover_fmt}}}<extra></extra>",
                 ),
                 secondary_y=False,
             )
@@ -753,12 +997,16 @@ def make_visual_figure(
         for trace_name in lines["_trace_label"].dropna().astype(str).unique().tolist():
             sub = lines[lines["_trace_label"].astype(str) == trace_name].copy()
             sub = sub.sort_values(["_axis_sort", "_axis_value"])
+            metric_name = str(
+                sub["_line_metric"].iloc[0]) if "_line_metric" in sub.columns and not sub.empty else trace_name
+            hover_fmt = ".2%" if metric_name.startswith("A/E") else ":,.4f"
             fig.add_trace(
                 go.Scatter(
                     x=sub["_axis_value"].astype(str),
                     y=sub["_value"],
                     mode=plot_mode,
                     name=trace_name,
+                    hovertemplate=f"{x_title}: %{{x}}<br>{trace_name}: %{{y{hover_fmt}}}<extra></extra>",
                 ),
                 secondary_y=use_secondary,
             )
@@ -813,41 +1061,72 @@ def flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def default_filter_config(path: str, nrows: Optional[int], available_columns: List[str]) -> Tuple[Dict[str, List[str]], Dict[str, Tuple[float, float]]]:
+    default_cat_filters: Dict[str, List[str]] = {}
+    default_num_ranges: Dict[str, Tuple[float, float]] = {}
+
+    if "Smoker_Status" in available_columns:
+        opts = category_options_query(path, nrows, "Smoker_Status")
+        if "U" in opts:
+            default_cat_filters["Smoker_Status"] = ["U"]
+
+    if "SOA_Post_Lvl_Ind" in available_columns:
+        opts = category_options_query(path, nrows, "SOA_Post_Lvl_Ind")
+        default_cat_filters["SOA_Post_Lvl_Ind"] = [x for x in opts if x not in {"PLT", "(Missing)"}] or [x for x in opts if x != "PLT"]
+
+    if "Insurance_Plan" in available_columns:
+        opts = category_options_query(path, nrows, "Insurance_Plan")
+        default_cat_filters["Insurance_Plan"] = [x for x in opts if x != "Other"]
+
+    if "Attained_Age" in available_columns:
+        lo, hi = numeric_bounds_query(path, nrows, "Attained_Age")
+        if lo is not None and hi is not None:
+            default_num_ranges["Attained_Age"] = (float(lo), float(min(hi, 94)))
+
+    return default_cat_filters, default_num_ranges
+
+
 # ---------------------------
 # UI renderers
 # ---------------------------
-def render_welcome_tab(source_name: str, data_path: str, row_count: int, available_columns: List[str]) -> None:
+def render_welcome_tab(source_name: str, data_path: str, available_columns: List[str]) -> None:
     st.title("SOA-style Mortality Experience Explorer")
-    st.caption("DuckDB-backed version with built-in data: query the file on demand instead of loading the whole dataset into pandas.")
-    m1, m2 = st.columns(2)
-    m1.metric("Rows available", f"{row_count:,}")
-    m2.metric("Known columns available", f"{len(available_columns):,}")
-    st.write(f"**Built-in file:** {source_name}")
-    st.code(data_path)
 
+    st.markdown(
+        """
+        **Basic flow**
+        1. Use **Preliminary filters** to define the working data.
+        2. Use **Pivot table** for cross-tab summaries and optional A/E output.
+        3. Use the five study tabs to build charts.
+        4. In each study tab, use the right-side dropdown filters to refine the chart further without changing the preliminary working set.
+        """
+    )
 
-def render_notes_tab(available_columns: List[str]) -> None:
-    st.write(
-        "This version uses DuckDB to query the file on demand instead of loading the whole dataset into pandas at startup. "
-        "Use Preliminary Filters to define the working subset, then analyze it in the study tabs."
+    st.markdown(
+        """
+        **Default working filters**
+        - `Smoker_Status = U`
+        - `SOA_Post_Lvl_Ind` excludes `PLT`
+        - `Insurance_Plan` excludes `Other`
+        - `Attained_Age <= 94`
+        """
     )
-    st.write(
-        "For best speed, point the app to a Parquet file. CSV / TSV can still work, but Parquet + DuckDB is the setup meant for public deployment."
+
+    st.markdown(
+        """
+        **Notes**
+        - This version queries the built-in file on demand with DuckDB instead of loading the full dataset into pandas at startup.
+        - Parquet is the preferred format for stability and speed in public deployment.
+        - The graph tabs now support additional dropdown filters layered on top of the preliminary filters.
+        """
     )
-    with st.expander("Core formulas", expanded=False):
-        formulas = pd.DataFrame(
-            [
-                ("ExpDth_VBT2015_Cnt", "XPO_C * q"),
-                ("ExpDth_VBT2015_Amt", "XPO_C * q * FA"),
-                ("ExpDth_VBT2015wMI_Cnt", "XPO_C * q * ((1-MI)^(ObservationYear-2015))"),
-                ("ExpDth_VBT2015wMI_Amt", "XPO_C * q * ((1-MI)^(ObservationYear-2015)) * FA"),
-            ],
-            columns=["Field", "Formula"],
-        )
-        st.dataframe(formulas, use_container_width=True, hide_index=True)
+
+    st.write(f"**Built-in file:** `{source_name}`")
+    st.write(f"**Resolved path:** `{data_path}`")
+
     with st.expander("Field reference", expanded=False):
         dict_rows = [{"Field": c, "Friendly": human(c), "Note": FIELD_NOTES.get(c, "")} for c in available_columns]
-        st.dataframe(pd.DataFrame(dict_rows), use_container_width=True, hide_index=True, height=380)
+        st.dataframe(pd.DataFrame(dict_rows), use_container_width=True, hide_index=True, height=420)
 
 
 def render_preliminary_filters_tab(
@@ -855,8 +1134,10 @@ def render_preliminary_filters_tab(
     nrows: Optional[int],
     available_columns: List[str],
     source_name: str,
+    default_cat_filters: Dict[str, List[str]],
+    default_num_ranges: Dict[str, Tuple[float, float]],
 ) -> None:
-    st.caption("Filters only update the working subset when you click Apply filters.")
+    st.caption("These filters define the working dataset used by the pivot table and the five study tabs.")
 
     candidate_filter_cols = [c for c in available_columns if c in ALL_KNOWN]
     default_filter_cols = [c for c in DEFAULT_FILTER_FIELDS if c in candidate_filter_cols]
@@ -864,16 +1145,19 @@ def render_preliminary_filters_tab(
     if "working_filter_cols" not in st.session_state:
         st.session_state["working_filter_cols"] = default_filter_cols
 
-    with st.form("preliminary_filters_form"):
-        filter_cols = st.multiselect(
-            "Fields to filter",
-            options=candidate_filter_cols,
-            default=st.session_state.get("working_filter_cols", default_filter_cols),
-            key="working_filter_cols",
-        )
+    filter_cols = st.multiselect(
+        "Fields to filter",
+        options=candidate_filter_cols,
+        default=st.session_state.get("working_filter_cols", default_filter_cols),
+        key="working_filter_cols",
+    )
 
+    with st.form("preliminary_filters_form"):
         cat_filters: Dict[str, List[str]] = {}
         num_ranges: Dict[str, Tuple[float, float]] = {}
+
+        current_cat = st.session_state.get("active_cat_filters", default_cat_filters)
+        current_num = st.session_state.get("active_num_ranges", default_num_ranges)
 
         for col in filter_cols:
             with st.expander(human(col), expanded=False):
@@ -882,13 +1166,20 @@ def render_preliminary_filters_tab(
                     if lo is None or hi is None:
                         st.caption("No numeric values available.")
                         continue
+
+                    current_val = current_num.get(col, (float(lo), float(hi)))
+                    current_lo = max(float(lo), float(current_val[0]))
+                    current_hi = min(float(hi), float(current_val[1]))
+                    if current_lo > current_hi:
+                        current_lo, current_hi = float(lo), float(hi)
+
                     if col in INT_FIELDS:
                         lo_i, hi_i = int(lo), int(hi)
                         val = st.slider(
                             f"{human(col)} range",
                             min_value=lo_i,
                             max_value=hi_i,
-                            value=(lo_i, hi_i),
+                            value=(int(round(current_lo)), int(round(current_hi))),
                             step=1,
                             key=f"pre_num_{col}",
                         )
@@ -898,35 +1189,48 @@ def render_preliminary_filters_tab(
                             f"{human(col)} range",
                             min_value=float(lo),
                             max_value=float(hi),
-                            value=(float(lo), float(hi)),
+                            value=(float(current_lo), float(current_hi)),
                             key=f"pre_num_{col}",
                         )
                         num_ranges[col] = (float(val[0]), float(val[1]))
                 else:
                     opts = category_options_query(path, nrows, col)
-                    selected = st.multiselect(
+                    default_selected = current_cat.get(col, opts)
+                    default_selected = [x for x in default_selected if x in opts] or opts
+                    cat_filters[col] = st.multiselect(
                         f"{human(col)} values",
                         options=opts,
-                        default=opts,
+                        default=default_selected,
                         key=f"pre_cat_{col}",
                     )
-                    cat_filters[col] = selected
+
+        st.markdown(
+            """
+            Default screen applied here:
+            - Smoker Status = U
+            - Post Level Term Indicator excludes PLT
+            - Insurance Plan excludes Other
+            - Attained Age capped at 94
+            """
+        )
 
         a, b = st.columns([1, 1])
         apply_clicked = a.form_submit_button("Apply filters", type="primary")
-        reset_clicked = b.form_submit_button("Reset to full data")
+        reset_clicked = b.form_submit_button("Reset to default filters")
 
     if "active_cat_filters" not in st.session_state:
-        st.session_state["active_cat_filters"] = {}
-        st.session_state["active_num_ranges"] = {}
+        st.session_state["active_cat_filters"] = default_cat_filters
+        st.session_state["active_num_ranges"] = default_num_ranges
 
     if reset_clicked:
-        st.session_state["active_cat_filters"] = {}
-        st.session_state["active_num_ranges"] = {}
+        st.session_state["working_filter_cols"] = default_filter_cols
+        st.session_state["active_cat_filters"] = default_cat_filters
+        st.session_state["active_num_ranges"] = default_num_ranges
         st.session_state.pop("working_download_df", None)
         st.session_state["pivot_table_duck"] = pd.DataFrame()
         for label, _, _ in PAGE_SPECS:
             st.session_state.pop(f"chart_output_{label}", None)
+            st.session_state.pop(f"chart_error_{label}", None)
     elif apply_clicked:
         st.session_state["active_cat_filters"] = cat_filters
         st.session_state["active_num_ranges"] = num_ranges
@@ -934,6 +1238,7 @@ def render_preliminary_filters_tab(
         st.session_state["pivot_table_duck"] = pd.DataFrame()
         for label, _, _ in PAGE_SPECS:
             st.session_state.pop(f"chart_output_{label}", None)
+            st.session_state.pop(f"chart_error_{label}", None)
 
     active_cat_filters = st.session_state.get("active_cat_filters", {})
     active_num_ranges = st.session_state.get("active_num_ranges", {})
@@ -941,28 +1246,20 @@ def render_preliminary_filters_tab(
     cat_frozen = freeze_cat_filters(active_cat_filters)
     num_frozen = freeze_num_ranges(active_num_ranges)
 
-    full_count = row_count_source(path, nrows)
     working_count = filtered_row_count_query(path, nrows, cat_frozen, num_frozen)
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Rows loaded", f"{full_count:,}")
-    m2.metric("Rows in working data", f"{working_count:,}")
-    m3.metric("Columns loaded", f"{len(available_columns):,}")
 
     summary_parts: List[str] = []
     for col, vals in active_cat_filters.items():
         if vals:
-            summary_parts.append(f"{human(col)}: {len(vals)} selected" if len(vals) > 3 else f"{human(col)}: {', '.join(vals)}")
+            summary_parts.append(f"{human(col)}: {len(vals)} selected" if len(vals) > 4 else f"{human(col)}: {', '.join(vals)}")
     for col, (lo, hi) in active_num_ranges.items():
         summary_parts.append(f"{human(col)}: {lo:g} to {hi:g}")
 
     if summary_parts:
         st.caption("Applied filters: " + "  •  ".join(summary_parts))
-    else:
-        st.caption("Applied filters: none. The working subset is the full loaded file.")
 
     if working_count == 0:
-        st.error("No rows left after the current preliminary filters.")
+        st.error("No rows are left after the current preliminary filters.")
         return
 
     with st.expander("Preview working dataset", expanded=False):
@@ -979,7 +1276,7 @@ def render_preliminary_filters_tab(
 
     with st.expander("Download working dataset", expanded=False):
         st.caption("To keep the app stable, this download is capped. Increase the cap only when needed.")
-        download_cap = st.slider("Download row cap", 1000, 200000, min(50000, max(1000, working_count)), 1000, key="download_cap")
+        download_cap = st.slider("Download row cap", 1000, 200000, 50000, 1000, key="download_cap")
         if st.button("Prepare filtered download", key="prepare_filtered_download"):
             st.session_state["working_download_df"] = filtered_download_query(path, nrows, int(download_cap), cat_frozen, num_frozen)
         if "working_download_df" in st.session_state and isinstance(st.session_state["working_download_df"], pd.DataFrame):
@@ -1000,7 +1297,7 @@ def render_pivot_tab(
     active_cat_filters: Dict[str, List[str]],
     active_num_ranges: Dict[str, Tuple[float, float]],
 ) -> None:
-    st.caption("The pivot table is kept separate so the study tabs stay simple and fast.")
+    st.caption("Build the pivot table from the current preliminary working data.")
 
     cat_frozen = freeze_cat_filters(active_cat_filters)
     num_frozen = freeze_num_ranges(active_num_ranges)
@@ -1044,26 +1341,34 @@ def render_pivot_tab(
         st.session_state["pivot_table_duck"] = pd.DataFrame()
 
     if pivot_apply:
-        base = build_pivot_base_duckdb(
-            path,
-            nrows,
-            tuple(c for c in row_fields + col_fields if c in available_columns),
-            tuple(value_sel),
-            agg_choice,
-            add_measures,
-            cat_frozen,
-            num_frozen,
-        )
-        metric_fields = [c for c in value_sel if c in base.columns] + [c for c in AE_OPTIONS if c in base.columns]
-        pt = pivot_table_from_base(base, row_fields=row_fields, col_fields=col_fields, metric_fields=metric_fields)
-        st.session_state["pivot_table_duck"] = flatten_columns(pt)
+        safe_rows = unique_preserve_order([c for c in row_fields if c in axis_fields])
+        safe_cols = unique_preserve_order([c for c in col_fields if c in axis_fields and c not in safe_rows])
+        safe_vals = unique_preserve_order([c for c in value_sel if c in value_fields])
+
+        if not safe_vals and not add_measures:
+            st.warning("Choose at least one value field, or keep Add A/E columns checked.")
+        else:
+            base = build_pivot_base_duckdb(
+                path,
+                nrows,
+                tuple(safe_rows + safe_cols),
+                tuple(safe_vals),
+                agg_choice,
+                add_measures,
+                cat_frozen,
+                num_frozen,
+            )
+            metric_fields = [c for c in safe_vals if c in base.columns] + [c for c in AE_OPTIONS if c in base.columns]
+            pt = pivot_table_from_base(base, row_fields=safe_rows, col_fields=safe_cols, metric_fields=metric_fields)
+            st.session_state["pivot_table_duck"] = flatten_columns(pt)
 
     pt_show = st.session_state.get("pivot_table_duck", pd.DataFrame())
     if pt_show.empty:
         st.info("Choose the pivot settings and click Build pivot.")
         return
 
-    st.dataframe(pt_show, use_container_width=True, hide_index=False, height=520)
+    pt_display = format_pivot_for_display(pt_show)
+    st.dataframe(pt_display, use_container_width=True, hide_index=False, height=520)
     st.download_button(
         "Download pivot (.csv)",
         data=df_to_csv_bytes(pt_show.reset_index(drop=False)),
@@ -1071,6 +1376,41 @@ def render_pivot_tab(
         mime="text/csv",
         key="download_pivot_duck",
     )
+
+
+def render_graph_filter_block(
+    path: str,
+    nrows: Optional[int],
+    tab_label: str,
+    prelim_cat_filters: Dict[str, List[str]],
+    prelim_num_ranges: Dict[str, Tuple[float, float]],
+) -> Dict[str, List[str]]:
+    prelim_cat_frozen = freeze_cat_filters(prelim_cat_filters)
+    prelim_num_frozen = freeze_num_ranges(prelim_num_ranges)
+
+    graph_filters: Dict[str, List[str]] = {}
+    st.markdown("**Chart filters**")
+
+    for col in GRAPH_FILTER_FIELDS:
+        opts = category_options_filtered_query(path, nrows, col, prelim_cat_frozen, prelim_num_frozen)
+        key = f"graph_filter_{tab_label}_{col}"
+
+        ensure_multiselect_state(key, opts, opts)
+        selected = st.multiselect(
+            human(col),
+            options=opts,
+            key=key,
+            placeholder=f"Select {human(col)}",
+        )
+
+        selected = [str(x) for x in selected]
+        opts_str = [str(x) for x in opts]
+
+        # Only keep this filter if it truly narrows the dataset.
+        if opts_str and set(selected) != set(opts_str):
+            graph_filters[col] = selected
+
+    return graph_filters
 
 
 def render_analysis_tab(
@@ -1083,9 +1423,9 @@ def render_analysis_tab(
     display_field: str,
     source_field: str,
 ) -> None:
-    cat_frozen = freeze_cat_filters(active_cat_filters)
-    num_frozen = freeze_num_ranges(active_num_ranges)
-    working_count = filtered_row_count_query(path, nrows, cat_frozen, num_frozen)
+    prelim_cat_frozen = freeze_cat_filters(active_cat_filters)
+    prelim_num_frozen = freeze_num_ranges(active_num_ranges)
+    working_count = filtered_row_count_query(path, nrows, prelim_cat_frozen, prelim_num_frozen)
     if working_count == 0:
         st.info("Apply broader preliminary filters to populate this page.")
         return
@@ -1095,98 +1435,223 @@ def render_analysis_tab(
     split_candidates = [c for c in available_columns if c in CAT_COLUMNS and c != source_field]
 
     state_key = f"chart_output_{tab_label}"
+    error_key = f"chart_error_{tab_label}"
 
     plot_col, settings_col = st.columns([4.6, 1.8], gap="large")
 
     with settings_col:
-        with st.form(f"form_{tab_label}"):
-            if source_field in NUM_COLUMNS:
-                max_bin = 10 if source_field in {"Issue_Age", "Attained_Age", "Duration"} else 5
-                bin_size = st.select_slider(
-                    "Bin size",
-                    options=list(range(1, max_bin + 1)),
-                    value=1,
-                    key=f"bin_{tab_label}",
-                )
-            else:
-                bin_size = 1
-            chart_mode = st.selectbox("Chart mode", ["Combo", "Lines only", "Bars only"], index=0, key=f"mode_{tab_label}")
-            line_mode = st.selectbox("Line style", ["Lines + Markers", "Lines", "Markers"], index=0, key=f"line_mode_{tab_label}")
-            height = st.slider("Chart height", 360, 900, 540, 10, key=f"height_{tab_label}")
+        graph_filter_dict = render_graph_filter_block(
+            path=path,
+            nrows=nrows,
+            tab_label=tab_label,
+            prelim_cat_filters=active_cat_filters,
+            prelim_num_ranges=active_num_ranges,
+        )
 
-            default_bars = [c for c in ["Death_Count", "ExpDth_VBT2015_Cnt"] if c in numeric_fields]
-            bar_metrics = st.multiselect(
-                "Bar metrics",
-                options=numeric_fields,
-                default=default_bars,
-                key=f"bars_{tab_label}",
+        st.markdown("---")
+        st.markdown("**Chart setup**")
+
+        if source_field in NUM_COLUMNS:
+            max_bin = 10 if source_field in {"Issue_Year", "Issue_Age", "Attained_Age", "Duration"} else 5
+            bin_size = st.select_slider(
+                "Bin size",
+                options=list(range(1, max_bin + 1)),
+                value=1,
+                key=f"bin_{tab_label}",
             )
-            default_line_metrics = [m for m in ["A/E (Count)", "A/E (Amount)"] if m in AE_OPTIONS]
-            line_metrics = st.multiselect(
-                "Line metrics",
-                options=AE_OPTIONS + [c for c in numeric_fields if c not in {"Death_Count", "Death_Claim_Amount", "ExpDth_VBT2015_Cnt", "ExpDth_VBT2015_Amt", "ExpDth_VBT2015wMI_Cnt", "ExpDth_VBT2015wMI_Amt"}],
-                default=default_line_metrics,
-                key=f"line_metrics_{tab_label}",
+        else:
+            bin_size = 1
+
+        chart_mode = st.selectbox(
+            "Chart mode",
+            ["Combo", "Lines only", "Bars only"],
+            index=0,
+            key=f"mode_{tab_label}",
+        )
+        line_mode = st.selectbox(
+            "Line style",
+            ["Lines + Markers", "Lines", "Markers"],
+            index=0,
+            key=f"line_mode_{tab_label}",
+        )
+        height = st.slider(
+            "Chart height",
+            360,
+            900,
+            540,
+            10,
+            key=f"height_{tab_label}",
+        )
+
+        default_bars = [c for c in ["Death_Count", "ExpDth_VBT2015_Cnt"] if c in numeric_fields]
+        line_metric_options = AE_OPTIONS + [
+            c for c in numeric_fields
+            if c not in {
+                "Death_Count",
+                "Death_Claim_Amount",
+                "ExpDth_VBT2015_Cnt",
+                "ExpDth_VBT2015_Amt",
+                "ExpDth_VBT2015wMI_Cnt",
+                "ExpDth_VBT2015wMI_Amt",
+            }
+        ]
+        default_line_metrics = [m for m in ["A/E (Count)", "A/E (Amount)"] if m in AE_OPTIONS]
+
+        ensure_multiselect_state(f"bars_{tab_label}", numeric_fields, default_bars)
+        ensure_multiselect_state(f"line_metrics_{tab_label}", line_metric_options, default_line_metrics)
+
+        bar_metrics = st.multiselect(
+            "Bar metrics",
+            options=numeric_fields,
+            key=f"bars_{tab_label}",
+        )
+        line_metrics = st.multiselect(
+            "Line metrics",
+            options=line_metric_options,
+            key=f"line_metrics_{tab_label}",
+        )
+
+        non_ae_agg = st.selectbox(
+            "Aggregation for non-A/E line metrics",
+            ["sum", "mean"],
+            index=0,
+            key=f"line_agg_{tab_label}",
+        )
+
+        split1_raw = st.selectbox(
+            "Split 1",
+            options=["(none)"] + split_candidates,
+            index=0,
+            key=f"split1_{tab_label}",
+        )
+        split1 = None if split1_raw == "(none)" else split1_raw
+
+        split2_candidates = [c for c in split_candidates if c != split1]
+        split2_raw = st.selectbox(
+            "Split 2",
+            options=["(none)"] + split2_candidates,
+            index=0,
+            key=f"split2_{tab_label}",
+        )
+        split2 = None if split2_raw == "(none)" else split2_raw
+
+        # Strip empty local chart filters before using them anywhere
+        active_graph_filters = graph_filter_dict
+        merged_for_split_options = combine_category_filters(active_cat_filters, active_graph_filters)
+        if split1:
+            split1_opts = category_options_filtered_query(
+                path,
+                nrows,
+                split1,
+                freeze_cat_filters(merged_for_split_options),
+                prelim_num_frozen,
             )
-            non_ae_agg = st.selectbox("Aggregation for non-A/E line metrics", ["sum", "mean"], index=0, key=f"line_agg_{tab_label}")
+            ensure_multiselect_state(
+                f"keep1_{tab_label}",
+                split1_opts,
+                split1_opts[:12] if len(split1_opts) > 12 else split1_opts,
+            )
+            keep_split1 = st.multiselect(
+                "Keep Split 1 values",
+                options=split1_opts,
+                key=f"keep1_{tab_label}",
+            )
+        else:
+            keep_split1 = []
 
-            split1_raw = st.selectbox("Split 1", options=["(none)"] + split_candidates, index=0, key=f"split1_{tab_label}")
-            split2_candidates = [c for c in split_candidates if c != split1_raw]
-            split2_raw = st.selectbox("Split 2", options=["(none)"] + split2_candidates, index=0, key=f"split2_{tab_label}")
-            split1 = None if split1_raw == "(none)" else split1_raw
-            split2 = None if split2_raw == "(none)" else split2_raw
+        if split2:
+            split2_filter_base = combine_category_filters(
+                merged_for_split_options,
+                {split1: keep_split1} if split1 and keep_split1 else {},
+            )
+            split2_opts = category_options_filtered_query(
+                path,
+                nrows,
+                split2,
+                freeze_cat_filters(split2_filter_base),
+                prelim_num_frozen,
+            )
+            ensure_multiselect_state(
+                f"keep2_{tab_label}",
+                split2_opts,
+                split2_opts[:8] if len(split2_opts) > 8 else split2_opts,
+            )
+            keep_split2 = st.multiselect(
+                "Keep Split 2 values",
+                options=split2_opts,
+                key=f"keep2_{tab_label}",
+            )
+        else:
+            keep_split2 = []
 
-            if split1:
-                split1_opts = category_options_query(path, nrows, split1)
-                keep_split1 = st.multiselect("Keep Split 1 values", options=split1_opts, default=split1_opts[:12] if len(split1_opts) > 12 else split1_opts, key=f"keep1_{tab_label}")
-            else:
-                keep_split1 = []
+        top_n_traces = st.slider(
+            "Max line traces",
+            1,
+            60,
+            20,
+            1,
+            key=f"tracecap_{tab_label}",
+        )
 
-            if split2:
-                split2_opts = category_options_query(path, nrows, split2)
-                keep_split2 = st.multiselect("Keep Split 2 values", options=split2_opts, default=split2_opts[:8] if len(split2_opts) > 8 else split2_opts, key=f"keep2_{tab_label}")
-            else:
-                keep_split2 = []
-
-            top_n_traces = st.slider("Max line traces", 1, 60, 20, 1, key=f"tracecap_{tab_label}")
-            apply_chart = st.form_submit_button("Apply chart", type="primary")
+        apply_chart = st.button(
+            "Apply chart",
+            type="primary",
+            key=f"apply_chart_{tab_label}",
+        )
 
     if state_key not in st.session_state:
         st.session_state[state_key] = None
+    if error_key not in st.session_state:
+        st.session_state[error_key] = None
 
     if apply_chart:
-        bars, lines, axis_order = summarize_for_chart_duckdb(
-            path=path,
-            nrows=nrows,
-            base_x_field=actual_x,
-            bin_size=bin_size,
-            bar_metrics=tuple(bar_metrics),
-            line_metrics=tuple(line_metrics),
-            split1=split1,
-            split2=split2,
-            keep_split1=tuple(keep_split1),
-            keep_split2=tuple(keep_split2),
-            non_ae_agg=non_ae_agg,
-            top_n_traces=top_n_traces,
-            cat_filters_frozen=cat_frozen,
-            num_ranges_frozen=num_frozen,
-        )
-        st.session_state[state_key] = {
-            "bars": bars,
-            "lines": lines,
-            "axis_order": axis_order,
-            "bar_metrics": bar_metrics,
-            "line_metrics": line_metrics,
-            "title": f"{tab_label}: {human(display_field)}",
-            "x_title": human(display_field),
-            "height": height,
-            "chart_mode": chart_mode,
-            "line_mode": line_mode,
-        }
+        merged_cat_filters = combine_category_filters(active_cat_filters, active_graph_filters)
+
+        if not bar_metrics:
+            bar_metrics = default_bars
+        if not line_metrics:
+            line_metrics = default_line_metrics
+
+        try:
+            bars, lines, axis_order = summarize_for_chart_duckdb(
+                path=path,
+                nrows=nrows,
+                base_x_field=actual_x,
+                bin_size=bin_size,
+                bar_metrics=tuple(bar_metrics),
+                line_metrics=tuple(line_metrics),
+                split1=split1,
+                split2=split2,
+                keep_split1=tuple(keep_split1),
+                keep_split2=tuple(keep_split2),
+                non_ae_agg=non_ae_agg,
+                top_n_traces=top_n_traces,
+                cat_filters_frozen=freeze_cat_filters(merged_cat_filters),
+                num_ranges_frozen=prelim_num_frozen,
+            )
+            st.session_state[state_key] = {
+                "bars": bars,
+                "lines": lines,
+                "axis_order": axis_order,
+                "bar_metrics": bar_metrics,
+                "line_metrics": line_metrics,
+                "title": f"{tab_label}: {human(display_field)}",
+                "x_title": human(display_field),
+                "height": height,
+                "chart_mode": chart_mode,
+                "line_mode": line_mode,
+            }
+            st.session_state[error_key] = None
+        except Exception as exc:
+            st.session_state[error_key] = str(exc)
 
     payload = st.session_state.get(state_key)
+    chart_error = st.session_state.get(error_key)
 
     with plot_col:
+        if chart_error:
+            st.error(f"This tab hit an error while applying the chart: {chart_error}")
+
         if not payload:
             st.info("Set the chart controls on the right and click Apply chart.")
             return
@@ -1199,24 +1664,23 @@ def render_analysis_tab(
             st.warning("No summary output could be built for this page with the current settings.")
             return
 
-        fig = make_visual_figure(
-            bars=bars,
-            lines=lines,
-            axis_order=axis_order,
-            bar_metrics=payload["bar_metrics"],
-            line_metrics=payload["line_metrics"],
-            chart_mode=payload["chart_mode"],
-            line_mode=payload["line_mode"],
-            title=payload["title"],
-            x_title=payload["x_title"],
-            height=payload["height"],
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("X buckets", f"{len(axis_order):,}")
-        m2.metric("Bar series", f"{len([c for c in payload['bar_metrics'] if c in bars.columns]):,}")
-        m3.metric("Line traces", f"{lines['_trace_label'].nunique(dropna=True) if not lines.empty and '_trace_label' in lines.columns else 0:,}")
+        try:
+            fig = make_visual_figure(
+                bars=bars,
+                lines=lines,
+                axis_order=axis_order,
+                bar_metrics=payload["bar_metrics"],
+                line_metrics=payload["line_metrics"],
+                chart_mode=payload["chart_mode"],
+                line_mode=payload["line_mode"],
+                title=payload["title"],
+                x_title=payload["x_title"],
+                height=payload["height"],
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as exc:
+            st.error(f"This tab could not render the saved chart output: {exc}")
+            return
 
         with st.expander("Download aggregated outputs", expanded=False):
             if not bars.empty:
@@ -1235,6 +1699,13 @@ def render_analysis_tab(
                     mime="text/csv",
                     key=f"download_lines_{tab_label}",
                 )
+
+def safe_render_tab(tab_name: str, render_fn) -> None:
+    try:
+        render_fn()
+    except Exception as exc:
+        st.error(f"{tab_name} encountered an error, but the other tabs remain usable.")
+        st.exception(exc)
 
 
 # ---------------------------
@@ -1255,30 +1726,32 @@ try:
     schema_df = describe_source(data_path, data_nrows)
     available_columns_all = schema_df["column_name"].tolist() if "column_name" in schema_df.columns else []
     available_columns = [c for c in available_columns_all if c in ALL_KNOWN]
-    row_count = row_count_source(data_path, data_nrows)
 except Exception as exc:
     st.error(f"Failed to open built-in data file: {exc}")
     st.stop()
+
+default_cat_filters, default_num_ranges = default_filter_config(data_path, data_nrows, available_columns)
 
 if "data_path" not in st.session_state or st.session_state.get("data_path") != data_path:
     st.session_state["data_path"] = data_path
     st.session_state["data_nrows"] = data_nrows
     st.session_state["source_name"] = source_name
     st.session_state["schema_df"] = schema_df
-    st.session_state["active_cat_filters"] = {}
-    st.session_state["active_num_ranges"] = {}
+    st.session_state["active_cat_filters"] = default_cat_filters
+    st.session_state["active_num_ranges"] = default_num_ranges
+    st.session_state["working_filter_cols"] = [c for c in DEFAULT_FILTER_FIELDS if c in available_columns]
     st.session_state.pop("working_download_df", None)
     for label, _, _ in PAGE_SPECS:
         st.session_state.pop(f"chart_output_{label}", None)
     st.session_state["pivot_table_duck"] = pd.DataFrame()
 
-welcome_tab, tab_prelim, tab_notes, tab_pivot, tab_obs, tab_issue, tab_dur, tab_att, tab_face = st.tabs(
+welcome_tab, tab_prelim, tab_pivot, tab_obs, tab_issue_year, tab_issue, tab_dur, tab_att, tab_face = st.tabs(
     [
         "Welcome",
         "Preliminary filters",
-        "Notes",
         "Pivot table",
         "Observation Year",
+        "Issue Year",
         "Issue Age",
         "Duration",
         "Attained Age",
@@ -1287,27 +1760,36 @@ welcome_tab, tab_prelim, tab_notes, tab_pivot, tab_obs, tab_issue, tab_dur, tab_
 )
 
 with welcome_tab:
-    render_welcome_tab(source_name, data_path, row_count, available_columns)
+    safe_render_tab("Welcome", lambda: render_welcome_tab(source_name, data_path, available_columns))
 
 with tab_prelim:
-    render_preliminary_filters_tab(data_path, data_nrows, available_columns, source_name)
+    safe_render_tab(
+        "Preliminary filters",
+        lambda: render_preliminary_filters_tab(
+            data_path,
+            data_nrows,
+            available_columns,
+            source_name,
+            default_cat_filters,
+            default_num_ranges,
+        ),
+    )
 
 active_cat_filters = st.session_state.get("active_cat_filters", {})
 active_num_ranges = st.session_state.get("active_num_ranges", {})
 
-with tab_notes:
-    render_notes_tab(available_columns)
-
 with tab_pivot:
-    render_pivot_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges)
+    safe_render_tab("Pivot table", lambda: render_pivot_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges))
 
 with tab_obs:
-    render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Observation Year", "Observation_Year", "Observation_Year")
+    safe_render_tab("Observation Year", lambda: render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Observation Year", "Observation_Year", "Observation_Year"))
+with tab_issue_year:
+    safe_render_tab("Issue Year", lambda: render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Issue Year", "Issue_Year", "Issue_Year"))
 with tab_issue:
-    render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Issue Age", "Issue_Age", "Issue_Age")
+    safe_render_tab("Issue Age", lambda: render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Issue Age", "Issue_Age", "Issue_Age"))
 with tab_dur:
-    render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Duration", "Duration", "Duration")
+    safe_render_tab("Duration", lambda: render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Duration", "Duration", "Duration"))
 with tab_att:
-    render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Attained Age", "Attained_Age", "Attained_Age")
+    safe_render_tab("Attained Age", lambda: render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Attained Age", "Attained_Age", "Attained_Age"))
 with tab_face:
-    render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Face Amount", "Face_Amount_Band_Label", "Face_Amount_Band")
+    safe_render_tab("Face Amount", lambda: render_analysis_tab(data_path, data_nrows, available_columns, active_cat_filters, active_num_ranges, "Face Amount", "Face_Amount_Band_Label", "Face_Amount_Band"))

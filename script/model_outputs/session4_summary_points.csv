@@ -1,0 +1,15 @@
+Item,Value
+Source file,script\data\parquet\full.parquet
+Scoped rows,"1,494,745"
+Selected model,random_forest_log_ratio
+Validation basis,full_refit
+1M face cap applied,True
+Age_Ind filter,None
+Age basis conversion,Not converted; Age_Ind modeled explicitly
+Attained_Age_min,1
+Attained_Age_max,94
+Overall A/P (full refit),1.022964
+Overall A/VBT (full refit),1.017357
+Optional development sample fraction,None
+Output Age_Ind,0
+Output Sex,M

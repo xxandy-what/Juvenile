@@ -1,0 +1,11 @@
+Model_Key,Role,Response_Basis,Offset_or_Weight_Usage,Interpretability,Comments
+poisson_glm_factor_spline,Benchmark,Death count,Offset = log(Expected count),High,Broad benchmark with raw plan and raw face-band effects plus smooth issue age / duration
+poisson_gam_core,Primary GAM-style candidate,Death count,Offset = log(Expected count),High,Core smooth model with Age_Ind and Sex only
+poisson_gam_select,Primary GAM-style candidate,Death count,Offset = log(Expected count),High,Adds select / ultimate structure to the core GAM-style model
+poisson_gam_plan_face,Challenger,Death count,Offset = log(Expected count),High,Grouped plan / face-band challenger to judge whether those effects add stable value
+poisson_gam_attained,Challenger,Death count,Offset = log(Expected count),High,"Attained-age alternative; should be compared against issue-age formulations, not casually combined with them"
+poisson_regressor,Challenger,Observed / expected ratio,Expected count used as sample weight,Medium,Regularized linear challenger
+random_forest_log_ratio,Signal finder,log(A/E),Expected count used as sample weight,Low,"Useful for signal discovery, not usually the final reported actuarial form"
+gradient_boosting_log_ratio,Signal finder,log(A/E),Expected count used as sample weight,Low,Useful for nonlinear challenger review
+hist_gradient_boosting_log_ratio,Signal finder,log(A/E),Expected count used as sample weight,Low,Histogram-boosting challenger
+extratrees_log_ratio,Signal finder,log(A/E),Expected count used as sample weight,Low,High-variance tree challenger for signal discovery

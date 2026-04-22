@@ -1,0 +1,5 @@
+Item,Value
+Validation basis,Full scoped data
+Holdout logic,Inactive / intentionally commented out
+Current scoring set,Same scoped data used for final refit scoring
+Interpretation note,"Use Session 4 to review calibration, monotonicity, and table shape; add a year holdout later if needed"
