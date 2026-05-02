@@ -16,6 +16,19 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-03] Phase 5: Refinement & Polish (UX & Integration)
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - **Global Filter Synchronization**: Integrated `get_active_filters_context` to allow the AI Assistant to inherit the state of the Preliminary filters tab, ensuring query consistency.
+  - **Professional Error Handling**: Implemented a humanized error-catching layer in `execute_read_only_sql` with descriptive English messages for Column Mismatches, Security Restrictions, and Payload limits.
+  - **Security Hardening**: Refined the SQL interceptor to distinguish between malicious DDL/DML attempts and invalid AI-generated responses (empty/NA SQL).
+  - **Empty State Feedback**: Added proactive UI warnings for successful queries that return 0 rows due to restrictive filtering.
+  - **Bug Fixes**: Resolved function signature mismatches and f-string escaping issues (`{{source_table}}`) in the prompt generation engine.
+
+---
+
 ### [2026-05-02] Phase 4: Chart Generation Copilot
 
 - **Status**: Completed
