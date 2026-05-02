@@ -11,19 +11,21 @@ This document tracks major architectural decisions, version changes, and develop
 
 - **[AD-001] AI Assistant Modularization**: To maintain the maintainability of `appv2.py`, all AI-related rendering, API calls, and SQL generation logic must be encapsulated in the `ai_assistant.py` module.
 - **[AD-002] State Persistence**: Conversation history must be stored in `st.session_state.messages` to prevent data loss during Streamlit reruns or tab switching.
+- **[AD-003] Automated CI/CD Quality Gates**: All Pull Requests and pushes to `main` must pass automated checks (Ruff & Mypy) via GitHub Actions to ensure code quality and prevent regression.
+- **[AD-004] Centralized Tool Configuration**: Project-wide tool settings (e.g., file exclusions for Ruff/Mypy) must be managed within `pyproject.toml` to ensure consistency between local development and CI environments.
 
 ## 3. Change Log
 
-### [2024-10-24] Phase 1: UI Skeleton & Echo System Validation
+### [2024-10-24] Phase 1: UI Skeleton & Infrastructure Setup
 
-- **Status**: Completed (Merged via PR #1)
+- **Status**: Completed
 - **Author**: [SeanChen327]
 - **Key Changes**:
-  - Integrated "AI Assistant" tab into `appv2.py`.
-  - Implemented logic decoupling via the `ai_assistant.py` module.
-  - Established session-based chat history storage.
-  - Validated "Echo Mode" to confirm UI stability and state retention.
-- **Open Issues**: None.
+  - Integrated "AI Assistant" tab using decoupled `ai_assistant.py` module.
+  - Implemented session-based chat history storage.
+  - Infrastructure Upgrade: Established GitHub Actions CI pipeline (`lint.yml`) for automated code linting.
+  - Code Hardening: Resolved 17+ linting and typing issues; introduced `pyproject.toml` to standardize environment configurations.
+  - Validated "Echo Mode" stability across Streamlit tab-switches.
 
 ---
 
