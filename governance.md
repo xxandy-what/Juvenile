@@ -16,6 +16,17 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-02] Phase 4: Chart Generation Copilot
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - Implemented advanced chart generation using plotly.graph_objects to support dual Y-axis combo charts (Volume vs. Ratio).
+  - Enhanced LLM prompt engineering to handle complex semantic mapping, allowing users to query using natural language/business terms instead of exact schema names.
+  - Developed a dynamic Plotly rendering pipeline in ai_assistant.py that interprets multi-metric JSON configurations from the model.
+
+---
+
 ### [2026-05-02] Phase 3: Text-to-SQL Core Data Pipeline
 
 - **Status**: Completed
