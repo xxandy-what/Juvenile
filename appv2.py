@@ -11,8 +11,6 @@ import streamlit as st
 from ai_assistant import render_ai_assistant_tab
 from plotly.subplots import make_subplots
 
-import json
-import streamlit as st
 
 # ---------------------------
 # Gemini API Setup
