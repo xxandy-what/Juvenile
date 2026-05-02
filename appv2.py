@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from ai_assistant import render_ai_assistant_tab
 from plotly.subplots import make_subplots
 
 st.set_page_config(page_title="SOA-style Mortality Explorer (DuckDB)", layout="wide")
@@ -1745,9 +1746,10 @@ if "data_path" not in st.session_state or st.session_state.get("data_path") != d
         st.session_state.pop(f"chart_output_{label}", None)
     st.session_state["pivot_table_duck"] = pd.DataFrame()
 
-welcome_tab, tab_prelim, tab_pivot, tab_obs, tab_issue_year, tab_issue, tab_dur, tab_att, tab_face = st.tabs(
+welcome_tab, tab_ai, tab_prelim, tab_pivot, tab_obs, tab_issue_year, tab_issue, tab_dur, tab_att, tab_face = st.tabs(
     [
         "Welcome",
+        "AI Assistant",
         "Preliminary filters",
         "Pivot table",
         "Observation Year",
@@ -1761,6 +1763,9 @@ welcome_tab, tab_prelim, tab_pivot, tab_obs, tab_issue_year, tab_issue, tab_dur,
 
 with welcome_tab:
     safe_render_tab("Welcome", lambda: render_welcome_tab(source_name, data_path, available_columns))
+
+with tab_ai:
+    safe_render_tab("AI Assistant", render_ai_assistant_tab)
 
 with tab_prelim:
     safe_render_tab(
