@@ -34,6 +34,8 @@ def parse_user_intent(user_prompt: str) -> dict:
                 temperature=0.1
             )
         )
+        if not response.text:
+            raise ValueError("Received empty response from LLM.")
         return json.loads(response.text)
     except Exception as e:
         return {"intent": "ERROR", "reasoning": str(e)}
@@ -92,6 +94,8 @@ def generate_duckdb_sql(user_prompt: str) -> dict:
                 temperature=0.1
             )
         )
+        if not response.text:
+            raise ValueError("Received empty response from LLM.")
         return json.loads(response.text)
     except Exception as e:
         return {"error": str(e)}
@@ -172,8 +176,9 @@ def render_ai_assistant_tab() -> None:
                         explanation = sql_payload.get("explanation", "")
                         
                         try:
-                            # Fetch the current data path from the main app state
                             data_path = st.session_state.get("data_path")
+                            if not isinstance(data_path, str):
+                                raise ValueError("Data path is missing or invalid in session state.")
                             result_df = execute_read_only_sql(gen_sql, data_path)
                             
                             # Display results
