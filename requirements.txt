@@ -8,3 +8,4 @@ matplotlib
 statsmodels
 IPyKernel
 scikit-learn
+google-genai

@@ -16,6 +16,22 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-02] Phase 2: Gemini API Integration for Intent Parsing
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - Migrated LLM client from the deprecated `google.generativeai` to the new `google.genai` SDK.
+  - Implemented `parse_user_intent` using `gemini-2.5-flash` to accurately classify user input into SQL_QUERY, PLOT_GEN, or GENERAL_CHAT using forced JSON output.
+  - UI Hardening: Resolved Streamlit layout deprecation warnings (`use_container_width` to `width="stretch"`) and fixed a multi-select state conflict in the preliminary filters tab.
+
+---
+
+### [In Progress] Phase 3: Text-to-SQL Core Data Pipeline
+
+- **Status**: In Progress
+- **Objective**: Implement schema-aware natural language to DuckDB SQL generation, ensuring secure, read-only query execution and dynamic DataFrame rendering within the chat interface.
+
 ### [2024-10-24] Phase 1: UI Skeleton & Infrastructure Setup
 
 - **Status**: Completed

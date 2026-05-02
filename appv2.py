@@ -11,6 +11,19 @@ import streamlit as st
 from ai_assistant import render_ai_assistant_tab
 from plotly.subplots import make_subplots
 
+import json
+import streamlit as st
+
+# ---------------------------
+# Gemini API Setup
+# ---------------------------
+# Safely fetch the API key from Streamlit secrets
+if "GEMINI_API_KEY" not in st.secrets:
+    st.error("🚨 缺少 API 密钥：请在 .streamlit/secrets.toml 中配置 GEMINI_API_KEY。")
+    st.stop()
+
+
+
 st.set_page_config(page_title="SOA-style Mortality Explorer (DuckDB)", layout="wide")
 
 # ---------------------------
@@ -1138,7 +1151,7 @@ def render_welcome_tab(source_name: str, data_path: str, available_columns: List
 
     with st.expander("Field reference", expanded=False):
         dict_rows = [{"Field": c, "Friendly": human(c), "Note": FIELD_NOTES.get(c, "")} for c in available_columns]
-        st.dataframe(pd.DataFrame(dict_rows), use_container_width=True, hide_index=True, height=420)
+        st.dataframe(pd.DataFrame(dict_rows), width="stretch", hide_index=True, height=420)
 
 
 def render_preliminary_filters_tab(
@@ -1160,8 +1173,7 @@ def render_preliminary_filters_tab(
     filter_cols = st.multiselect(
         "Fields to filter",
         options=candidate_filter_cols,
-        default=st.session_state.get("working_filter_cols", default_filter_cols),
-        key="working_filter_cols",
+        key="working_filter_cols", # Streamlit automatically uses the session state value as the default
     )
 
     with st.form("preliminary_filters_form"):
@@ -1284,7 +1296,7 @@ def render_preliminary_filters_tab(
         )
         preview_n = st.slider("Preview rows", 10, 200, 50, 10, key="preview_rows_working")
         preview_df = filtered_preview_query(path, nrows, tuple(preview_cols), preview_n, cat_frozen, num_frozen)
-        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+        st.dataframe(preview_df, width="stretch", hide_index=True)
 
     with st.expander("Download working dataset", expanded=False):
         st.caption("To keep the app stable, this download is capped. Increase the cap only when needed.")
@@ -1380,7 +1392,7 @@ def render_pivot_tab(
         return
 
     pt_display = format_pivot_for_display(pt_show)
-    st.dataframe(pt_display, use_container_width=True, hide_index=False, height=520)
+    st.dataframe(pt_display, width="stretch", hide_index=False, height=520)
     st.download_button(
         "Download pivot (.csv)",
         data=df_to_csv_bytes(pt_show.reset_index(drop=False)),
@@ -1689,7 +1701,7 @@ def render_analysis_tab(
                 x_title=payload["x_title"],
                 height=payload["height"],
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         except Exception as exc:
             st.error(f"This tab could not render the saved chart output: {exc}")
             return
