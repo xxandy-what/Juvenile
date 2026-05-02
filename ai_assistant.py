@@ -293,6 +293,8 @@ def render_ai_assistant_tab() -> None:
                         try:
                             # 1. Fetch data
                             data_path = st.session_state.get("data_path")
+                            if not isinstance(data_path, str):
+                                raise ValueError("System error: Valid data_path not found in session state.")
                             result_df = execute_read_only_sql(gen_sql, data_path)
                             
                             # 2. Build Advanced Plotly figure
