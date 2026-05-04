@@ -10,6 +10,32 @@ from google import genai
 from google.genai import types
 
 
+def get_recent_chat_history(messages: list, max_turns: int = 3) -> str:
+    """
+    [Phase 9 Enhancement]
+    Extracts recent conversation history (text only) to provide context for the LLM.
+    We exclude the very last message assuming it's the current user prompt being processed.
+    """
+    if not messages or len(messages) <= 1:
+        return "No previous context."
+    
+    history_lines = []
+    # 获取最近的 max_turns 轮对话（一问一答算1轮，所以 * 2）
+    # 切片 [:-1] 是因为此时最新的 prompt 已经 append 进去了，我们要排除它
+    recent_msgs = messages[-(max_turns * 2 + 1):-1] 
+    
+    for msg in recent_msgs:
+        # 只提取纯文本，忽略 DataFrame (msg["df"]) 或图表 (msg["fig"])
+        role = "User" if msg["role"] == "user" else "Assistant"
+        # 过滤掉较长的系统提示或报错，只保留核心交互
+        content = msg["content"]
+        if "Database Execution Error" in content or "Traceback" in content:
+            content = "[System Error Message Omitted]"
+            
+        history_lines.append(f"{role}: {content}")
+        
+    return "\n".join(history_lines) if history_lines else "No previous context."
+
 def get_active_filters_context(use_global_filters: bool) -> str:
     """
     [Phase 6 Refactored]
@@ -22,7 +48,7 @@ def get_active_filters_context(use_global_filters: bool) -> str:
     return "The table `current_working_set` HAS ALREADY BEEN FILTERED based on the user's global settings. DO NOT add preliminary filters (like Age or Smoker_Status bounds) unless the user explicitly asks to filter them further in their prompt."
 
 
-def parse_user_intent(user_prompt: str) -> dict:
+def parse_user_intent(user_prompt: str, chat_history: str = "") -> dict:
     """
     Calls the Gemini API to parse user intent and returns a JSON dictionary.
     """
@@ -43,9 +69,12 @@ def parse_user_intent(user_prompt: str) -> dict:
     
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        # 【修改这里】将历史记录拼接到给模型的输入中
+        combined_input = f"{system_prompt}\n\n[Conversation History]:\n{chat_history}\n\n[Current User Input]:\n{user_prompt}"
+        
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=f"{system_prompt}\n\nUser Input: {user_prompt}",
+            contents=combined_input,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.1
@@ -58,7 +87,7 @@ def parse_user_intent(user_prompt: str) -> dict:
         return {"intent": "ERROR", "reasoning": str(e)}
 
 
-def generate_duckdb_sql(user_prompt: str, filter_context: str, schema_context: str, error_feedback: Optional[str] = None) -> dict:
+def generate_duckdb_sql(user_prompt: str, filter_context: str, schema_context: str, error_feedback: Optional[str] = None, chat_history: str = "") -> dict:
     """
     Translates natural language into a valid, read-only DuckDB SQL query.
     [Phase 8 Refactored] Now accepts dynamic schema_context to prevent schema drift.
@@ -98,9 +127,12 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str, schema_context: s
     
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        # 【修改这里】将历史记录拼接到给模型的输入中
+        combined_input = f"{system_prompt}\n\n[Conversation History]:\n{chat_history}\n\n[Current User Input]:\n{user_prompt}"
+        
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=f"{system_prompt}\n\nUser Input: {user_prompt}",
+            contents=combined_input,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.1
@@ -112,7 +144,7 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str, schema_context: s
     except Exception as e:
         return {"error": str(e)}
 
-def generate_plot_config(user_prompt: str, filter_context: str, schema_context: str, error_feedback: Optional[str] = None) -> dict:
+def generate_plot_config(user_prompt: str, filter_context: str, schema_context: str, error_feedback: Optional[str] = None, chat_history: str = "") -> dict:
     """
     Translates natural language into both a SQL query for data aggregation
     and configuration parameters for Plotly visualization.
@@ -164,9 +196,12 @@ def generate_plot_config(user_prompt: str, filter_context: str, schema_context: 
     
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        # 【修改这里】将历史记录拼接到给模型的输入中
+        combined_input = f"{system_prompt}\n\n[Conversation History]:\n{chat_history}\n\n[Current User Input]:\n{user_prompt}"
+        
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=f"{system_prompt}\n\nUser Input: {user_prompt}",
+            contents=combined_input,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.1
@@ -295,14 +330,20 @@ def render_ai_assistant_tab(schema_context: str) -> None:
         # Display user message immediately
         with chat_container.chat_message("user"):
             st.markdown(prompt)
+            
+        # 先保存用户输入到状态中
         st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # 【新增这行】提取历史记录
+        chat_history_str = get_recent_chat_history(st.session_state.messages)
 
         # Process the request
         with chat_container.chat_message("assistant"):
             
             # Step A: Intent Parsing
             with st.spinner("Analyzing intent..."):
-                intent_result = parse_user_intent(prompt)
+                # 【修改这行】传入 chat_history_str
+                intent_result = parse_user_intent(prompt, chat_history_str)
             
             intent = intent_result.get("intent")
             
@@ -321,8 +362,8 @@ def render_ai_assistant_tab(schema_context: str) -> None:
                     error_feedback = None
                     
                     for attempt in range(max_retries + 1):
-                        # 在这里传入 schema_context
-                        sql_payload = generate_duckdb_sql(prompt, filter_context, schema_context, error_feedback)
+                        # 【修改这行】增加 chat_history_str 参数传递
+                        sql_payload = generate_duckdb_sql(prompt, filter_context, schema_context, error_feedback, chat_history_str)
                         
                         if "error" in sql_payload:
                             err_text = f"Failed to generate SQL: {sql_payload['error']}"
@@ -387,8 +428,8 @@ def render_ai_assistant_tab(schema_context: str) -> None:
                     error_feedback = None
                     
                     for attempt in range(max_retries + 1):
-                        # 在这里传入 schema_context
-                        plot_payload = generate_plot_config(prompt, filter_context, schema_context, error_feedback)
+                        # 【修改这行】增加 chat_history_str 参数传递
+                        plot_payload = generate_plot_config(prompt, filter_context, schema_context, error_feedback, chat_history_str)
                         
                         if "error" in plot_payload:
                             err_text = f"Failed to generate plot config: {plot_payload['error']}"
