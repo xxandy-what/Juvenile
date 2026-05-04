@@ -1,4 +1,5 @@
 import json
+import re
 import duckdb
 import pandas as pd
 import streamlit as st
@@ -10,28 +11,14 @@ from google.genai import types
 
 def get_active_filters_context(use_global_filters: bool) -> str:
     """
-    根据用户选择，读取 Streamlit session state 中的初步过滤条件并生成 LLM 提示词上下文。
+    [Phase 6 Refactored]
+    Tells the LLM whether the underlying view is already filtered. 
+    No longer constructs raw SQL strings for the prompt.
     """
     if not use_global_filters:
-        return "The user wants to query the FULL dataset. Do NOT apply any preliminary filters implicitly."
+        return "The user wants to query the FULL dataset. The table `current_working_set` contains unfiltered data."
 
-    cat_filters = st.session_state.get("active_cat_filters", {})
-    num_ranges = st.session_state.get("active_num_ranges", {})
-    
-    context_parts = []
-    
-    for col, vals in cat_filters.items():
-        if vals:
-            val_str = ", ".join([f"'{v}'" for v in vals])
-            context_parts.append(f"- {col} IN ({val_str})")
-            
-    for col, (lo, hi) in num_ranges.items():
-        context_parts.append(f"- {col} BETWEEN {lo} AND {hi}")
-        
-    if not context_parts:
-        return "No preliminary filters applied. Query the full dataset."
-        
-    return "The user has applied the following global preliminary filters. You MUST include these conditions in your WHERE clause:\n" + "\n".join(context_parts)
+    return "The table `current_working_set` HAS ALREADY BEEN FILTERED based on the user's global settings. DO NOT add preliminary filters (like Age or Smoker_Status bounds) unless the user explicitly asks to filter them further in their prompt."
 
 
 def parse_user_intent(user_prompt: str) -> dict:
@@ -70,9 +57,10 @@ def parse_user_intent(user_prompt: str) -> dict:
         return {"intent": "ERROR", "reasoning": str(e)}
 
 
-def generate_duckdb_sql(user_prompt: str, filter_context: str) -> dict:
+def generate_duckdb_sql(user_prompt: str, filter_context: str, error_feedback: str = None) -> dict:
     """
-    Translates natural language into a valid, read-only DuckDB SQL query based on the actuarial schema.
+    Translates natural language into a valid, read-only DuckDB SQL query.
+    [Phase 6] Now supports self-correction via error_feedback.
     """
     system_prompt = f'''
     You are an expert Actuarial Data Scientist and DuckDB SQL developer.
@@ -82,7 +70,7 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str) -> dict:
     {filter_context}
 
     # Data Schema
-    Table Name: {{source_table}}
+    Table Name: current_working_set
 
     Categorical Columns (Use for GROUP BY or WHERE):
     - Observation_Year (2012-2019)
@@ -105,16 +93,21 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str) -> dict:
     - A/E (Amount) = SUM(Death_Claim_Amount) / NULLIF(SUM(ExpDth_VBT2015_Amt), 0)
 
     # Strict Rules:
-    1. ONLY use the exact column names listed above. Do NOT hallucinate columns.
-    2. ALWAYS use read-only SELECT statements. Do NOT generate INSERT, UPDATE, or DROP.
-    3. Always use NULLIF for denominators to prevent division by zero errors.
+    1. You MUST use the exact string `current_working_set` as the table name in your FROM clause. Do NOT use {{source_table}} or "mortality".
+    2. ONLY use the exact column names listed above. Do NOT hallucinate columns.
+    3. ALWAYS use read-only SELECT statements. Do NOT generate INSERT, UPDATE, or DROP.
+    4. Always use NULLIF for denominators to prevent division by zero errors.
 
     You MUST respond in valid JSON format with the following schema:
     {{
-        "sql": "The complete DuckDB SQL query string using {{source_table}}",
+        "sql": "The complete DuckDB SQL query string using current_working_set",
         "explanation": "Brief explanation of how the query works"
     }}
     '''
+    
+    # === [Phase 6] Self-Correction Injection ===
+    if error_feedback:
+        system_prompt += f"\n\n[CRITICAL CORRECTION REQUIRED]: Your previous attempt failed with the following error:\n{error_feedback}\nPlease fix the SQL syntax or logic error and return the corrected JSON."
     
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
@@ -132,7 +125,7 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-def generate_plot_config(user_prompt: str, filter_context: str) -> dict:
+def generate_plot_config(user_prompt: str, filter_context: str, error_feedback: str = None) -> dict:
     """
     Translates natural language into both a SQL query for data aggregation
     and configuration parameters for Plotly visualization.
@@ -145,7 +138,7 @@ def generate_plot_config(user_prompt: str, filter_context: str) -> dict:
     {filter_context}
 
     # Data Schema
-    Table Name: {{source_table}}
+    Table Name: current_working_set
 
     Categorical Columns: Observation_Year, Age_Ind, Sex, Smoker_Status, Insurance_Plan, Face_Amount_Band, SOA_Post_Lvl_Ind, Preferred_Class
     Numeric Columns: Issue_Age, Duration, Issue_Year, Attained_Age, Amount_Exposed, Policies_Exposed, Death_Claim_Amount, Death_Count, ExpDth_VBT2015_Cnt, ExpDth_VBT2015_Amt
@@ -155,7 +148,7 @@ def generate_plot_config(user_prompt: str, filter_context: str) -> dict:
     - AE_Amount = SUM(Death_Claim_Amount) / NULLIF(SUM(ExpDth_VBT2015_Amt), 0)
 
     # Strict Rules for SQL Generation:
-    1. You MUST use the exact string `{{source_table}}` as the table name in your FROM clause. Do NOT use "mortality".
+    1. You MUST use the exact string `current_working_set` as the table name in your FROM clause. Do NOT use {{source_table}} or "mortality".
     2. ONLY use the exact column names listed above.
     3. Always use read-only SELECT statements.
     4. If the user asks to split, group, or color the chart by a categorical column (like Sex or Insurance_Plan), you MUST pivot that category in your SQL using CASE WHEN (e.g., `SUM(CASE WHEN Sex='F' THEN Policies_Exposed ELSE 0 END) AS F_Policies_Exposed`). The final SQL output must have ONE column for the X-axis and MULTIPLE separate columns for the Y-axis.
@@ -171,7 +164,7 @@ def generate_plot_config(user_prompt: str, filter_context: str) -> dict:
 
     You MUST respond in valid JSON format:
     {{
-        "sql": "DuckDB SELECT query using {{source_table}}",
+        "sql": "DuckDB SELECT query using current_working_set",
         "chart_type": "bar" | "line" | "pie" | "combo",
         "x_axis": "Exact column name for X axis",
         "y_axis_bars": ["List of column names for bar charts (leave empty if none)"],
@@ -180,6 +173,9 @@ def generate_plot_config(user_prompt: str, filter_context: str) -> dict:
         "explanation": "Brief explanation of what the chart shows"
     }}
     '''
+    
+    if error_feedback:
+        system_prompt += f"\n\n[CRITICAL CORRECTION REQUIRED]: Your previous attempt failed with the following error:\n{error_feedback}\nPlease fix the configuration or SQL error and return the corrected JSON."
     
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
@@ -198,50 +194,76 @@ def generate_plot_config(user_prompt: str, filter_context: str) -> dict:
         return {"error": str(e)}
     
 
-def execute_read_only_sql(sql: str, data_path: str) -> pd.DataFrame:
+def execute_read_only_sql(sql: str, data_path: str, use_global_filters: bool) -> pd.DataFrame:
     """
-    Safely executes the LLM-generated SQL query against the underlying Parquet/CSV file,
-    with humanized, professional English error handling for a better user experience.
+    [Phase 6 Refactored]
+    Creates a Temporary View matching UI filters, then safely executes the LLM-generated SQL against it.
     """
     sql_clean = sql.strip().upper()
     
-    # 1. Handle Empty/Missing SQL (LLM gave up because columns don't exist)
+    # 1. Handle Empty/Missing SQL
     if not sql_clean or sql_clean == "N/A":
-        raise ValueError("Column Mismatch: The AI could not generate a query because the requested fields (e.g., profit, region) are not in the database. Please check the Field Reference.")
+        raise ValueError("Column Mismatch: The AI could not generate a query because the requested fields are not in the database. Please check the Field Reference.")
         
-    # 2. Security Check (Differentiate malicious requests from malformed ones)
-    if not sql_clean.startswith("SELECT"):
-        malicious_keywords = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "GRANT", "TRUNCATE"]
-        if any(sql_clean.startswith(kw) for kw in malicious_keywords):
-            raise ValueError("Security Restriction: For data safety, only read-only SELECT queries are permitted. Data modification or system-level requests are blocked.")
-        else:
-            raise ValueError("Invalid Query Format: The AI generated an invalid response instead of a SQL query. Please rephrase your question.")
+    # 2. Security Check & Sandbox Firewall
+    if not sql_clean.startswith("SELECT") and not sql_clean.startswith("WITH"):
+        raise ValueError("Invalid Query Format: The AI generated an invalid response instead of a SQL query. Please rephrase your question.")
     
-    # 3. Dynamic Table Path Resolution
+    # 定义危险操作和外部访问函数黑名单
+    malicious_keywords = [
+        "DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "GRANT", "TRUNCATE", # DDL/DML
+        "READ_CSV", "READ_PARQUET", "READ_JSON", "WRITE_CSV", "WRITE_PARQUET", "COPY", # File I/O
+        "PRAGMA", "INSTALL", "LOAD", "ATTACH", "DETACH", "SYSTEM" # System/Config commands
+    ]
+    
+    # 使用正则匹配独立单词，防止误伤（例如列名恰好叫 "UPDATE_TIME" 或 "DROP_RATE"）
+    for kw in malicious_keywords:
+        if re.search(r'\b' + kw + r'\b', sql_clean):
+            raise ValueError(f"Security Restriction: For data safety, the keyword '{kw}' is strictly forbidden.")
+    
+    # 3. Dynamic Source Resolution
     safe_path = data_path.replace("'", "''")
     if safe_path.lower().endswith('.csv'):
          source_expr = f"read_csv_auto('{safe_path}', header=true)"
     else:
          source_expr = f"read_parquet('{safe_path}')"
          
-    final_sql = sql.replace("{source_table}", source_expr)
+    # 4. Build the Temporary View Definition
+    view_sql = f"CREATE TEMP VIEW current_working_set AS SELECT * FROM {source_expr}"
     
-    # 4. Execution with Friendly Error Catching
+    if use_global_filters:
+        cat_filters = st.session_state.get("active_cat_filters", {})
+        num_ranges = st.session_state.get("active_num_ranges", {})
+        clauses = []
+        
+        for col, vals in cat_filters.items():
+            if vals:
+                # Need to handle missing values nicely or strictly match strings
+                val_str = ", ".join([f"'{v}'" for v in vals if v != "(Missing)"])
+                if val_str:
+                    clauses.append(f"{col} IN ({val_str})")
+                    
+        for col, (lo, hi) in num_ranges.items():
+            clauses.append(f"TRY_CAST({col} AS DOUBLE) BETWEEN {lo} AND {hi}")
+            
+        if clauses:
+            view_sql += " WHERE " + " AND ".join(clauses)
+
+    # 5. Execution with Friendly Error Catching
     con = duckdb.connect()
     try:
-        return con.execute(final_sql).df()
+        # Create the sandbox view first
+        con.execute(view_sql)
+        # Execute the LLM's query
+        return con.execute(sql).df()
     except Exception as e:
         error_str = str(e).lower()
-        
-        # Translate hard DuckDB errors into business-friendly logic
         if "column" in error_str and "not found" in error_str:
-            friendly_msg = "Column Mismatch: Some requested data fields do not exist in the current actuarial database. Please refer to the Field Reference for available columns."
+            friendly_msg = "Column Mismatch: Some requested data fields do not exist in the current database schema."
         elif "divide by zero" in error_str:
-            friendly_msg = "Calculation Error: Division by zero encountered. This usually happens when the Expected Deaths for certain groups evaluate to 0."
-        elif "out of memory" in error_str or "message size" in error_str:
-            friendly_msg = "Payload Too Large: The query attempts to return too many rows. Please ask for aggregated data (e.g., using SUM or COUNT) or apply stricter Preliminary filters."
+            friendly_msg = "Calculation Error: Division by zero encountered. This usually happens when the Expected Deaths evaluate to 0."
         elif "syntax error" in error_str or "parser error" in error_str:
-            friendly_msg = f"SQL Syntax Error: The generated query contains a logical flaw and failed to execute.\n\n*Details:* `{str(e)}`"
+            friendly_msg = f"SQL Syntax Error: The generated query contains a logical flaw.\n\n*Details:* `{str(e)}`"
         else:
             friendly_msg = f"Database Execution Error:\n\n`{str(e)}`"
             
@@ -307,64 +329,87 @@ def render_ai_assistant_tab() -> None:
             # Step B: SQL Pipeline
             elif intent == "SQL_QUERY":
                 with st.spinner("Writing DuckDB query & fetching data..."):
-                    # 获取上下文并传给 LLM
                     filter_context = get_active_filters_context(use_global_filters)
-                    sql_payload = generate_duckdb_sql(prompt, filter_context)
+                    data_path = st.session_state.get("data_path")
                     
-                    if "error" in sql_payload:
-                        err_text = f"Failed to generate SQL: {sql_payload['error']}"
-                        st.error(err_text)
-                        st.session_state.messages.append({"role": "assistant", "content": err_text})
-                    else:
+                    max_retries = 1
+                    error_feedback = None
+                    success = False
+                    
+                    for attempt in range(max_retries + 1):
+                        sql_payload = generate_duckdb_sql(prompt, filter_context, error_feedback)
+                        
+                        if "error" in sql_payload:
+                            err_text = f"Failed to generate SQL: {sql_payload['error']}"
+                            st.error(err_text)
+                            st.session_state.messages.append({"role": "assistant", "content": err_text})
+                            break
+                        
                         gen_sql = sql_payload.get("sql", "")
                         explanation = sql_payload.get("explanation", "")
                         
                         try:
-                            # Retrieve the current dataset path from appv2.py state
-                            data_path = st.session_state.get("data_path")
-                            if not isinstance(data_path, str):
-                                raise ValueError("System error: Valid data_path not found in session state.")
+                            # 尝试执行 SQL
+                            result_df = execute_read_only_sql(gen_sql, data_path, use_global_filters)
                             
-                            # Execute query
-                            result_df = execute_read_only_sql(gen_sql, data_path)
-                            
-                            # === [新增 Phase 5] 空数据拦截 ===
+                            # === 成功拦截 ===
+                            success = True
                             if result_df.empty:
                                 warn_msg = f"**No Data Found.**\n\nYour query executed successfully, but returned 0 rows. This is likely due to the current Preliminary filters being too restrictive.\n\n*Attempted SQL:*\n```sql\n{gen_sql}\n```"
                                 st.warning(warn_msg)
                                 st.session_state.messages.append({"role": "assistant", "content": warn_msg})
                             else:
-                                # Build response markdown
-                                resp_text = f"**Explanation:** {explanation}\n\n```sql\n{gen_sql}\n```"
+                                debug_note = "\n\n*(Self-corrected after initial error)*" if attempt > 0 else ""
+                                resp_text = f"**Explanation:** {explanation}{debug_note}\n\n```sql\n{gen_sql}\n```"
                                 
-                                # Render UI
                                 st.markdown(resp_text)
                                 st.dataframe(result_df, width="stretch")
                                 
-                                # Persist to history
+                                csv_bytes = result_df.to_csv(index=False).encode('utf-8')
+                                st.download_button(
+                                    label="Download Data as CSV",
+                                    data=csv_bytes,
+                                    file_name="ai_query_result.csv",
+                                    mime="text/csv",
+                                    key=f"download_{len(st.session_state.messages)}" # 保证每次循环生成的 key 唯一
+                                )
+
                                 st.session_state.messages.append({
                                     "role": "assistant", 
                                     "content": resp_text, 
                                     "df": result_df
                                 })
+                            break # 跳出重试循环
                             
                         except Exception as e:
-                            err_msg = f"**Database Execution Error:** `{str(e)}`\n\n*Attempted SQL:*\n```sql\n{gen_sql}\n```"
-                            st.error(err_msg)
-                            st.session_state.messages.append({"role": "assistant", "content": err_msg})
+                            # 捕获失败，准备下一轮反射
+                            if attempt < max_retries:
+                                error_feedback = f"Error: {str(e)}\nAttempted SQL:\n{gen_sql}"
+                                # 循环继续，带上错误信息重新请求大模型
+                            else:
+                                err_msg = f"**Database Execution Error (After retry):** `{str(e)}`\n\n*Final Attempted SQL:*\n```sql\n{gen_sql}\n```"
+                                st.error(err_msg)
+                                st.session_state.messages.append({"role": "assistant", "content": err_msg})
             
             # Step C: Plot Generation Pipeline
             elif intent == "PLOT_GEN":
                 with st.spinner("Designing chart and fetching data..."):
-                    # 获取上下文并传给 LLM
                     filter_context = get_active_filters_context(use_global_filters)
-                    plot_payload = generate_plot_config(prompt, filter_context)
+                    data_path = st.session_state.get("data_path")
                     
-                    if "error" in plot_payload:
-                        err_text = f"Failed to generate plot config: {plot_payload['error']}"
-                        st.error(err_text)
-                        st.session_state.messages.append({"role": "assistant", "content": err_text})
-                    else:
+                    max_retries = 1
+                    error_feedback = None
+                    
+                    for attempt in range(max_retries + 1):
+                        # 注意这里传入了 error_feedback
+                        plot_payload = generate_plot_config(prompt, filter_context, error_feedback)
+                        
+                        if "error" in plot_payload:
+                            err_text = f"Failed to generate plot config: {plot_payload['error']}"
+                            st.error(err_text)
+                            st.session_state.messages.append({"role": "assistant", "content": err_text})
+                            break
+                            
                         gen_sql = plot_payload.get("sql", "")
                         chart_type = plot_payload.get("chart_type", "bar")
                         x_col = plot_payload.get("x_axis")
@@ -375,12 +420,12 @@ def render_ai_assistant_tab() -> None:
                         
                         try:
                             # 1. Fetch data
-                            data_path = st.session_state.get("data_path")
                             if not isinstance(data_path, str):
                                 raise ValueError("System error: Valid data_path not found in session state.")
-                            result_df = execute_read_only_sql(gen_sql, data_path)
+                                
+                            result_df = execute_read_only_sql(gen_sql, data_path, use_global_filters)
                             
-                            # === [新增 Phase 5] 空数据拦截 ===
+                            # === 空数据拦截 ===
                             if result_df.empty:
                                 warn_msg = f"**No Data Available for Chart.**\n\nThe query returned 0 rows, likely due to the current Preliminary filters. Please adjust the filters and try again.\n\n*Attempted SQL:*\n```sql\n{gen_sql}\n```"
                                 st.warning(warn_msg)
@@ -419,21 +464,37 @@ def render_ai_assistant_tab() -> None:
                                     fig.update_yaxes(title_text="Ratio (Lines)", secondary_y=True, tickformat=".2f")
                                     
                                 # 3. Build UI Response
-                                resp_text = f"**Explanation:** {explanation}\n\n*Generated SQL:*\n```sql\n{gen_sql}\n```"
+                                debug_note = "\n\n*(Self-corrected after initial error)*" if attempt > 0 else ""
+                                resp_text = f"**Explanation:** {explanation}{debug_note}\n\n*Generated SQL:*\n```sql\n{gen_sql}\n```"
+                                
                                 st.markdown(resp_text)
                                 st.plotly_chart(fig, width="stretch")
                                 
+                                csv_bytes = result_df.to_csv(index=False).encode('utf-8')
+                                st.download_button(
+                                    label="Download Chart Data as CSV",
+                                    data=csv_bytes,
+                                    file_name="ai_chart_data.csv",
+                                    mime="text/csv",
+                                    key=f"dl_plot_{len(st.session_state.messages)}"
+                                )
+
                                 # 4. Persist figure to state
                                 st.session_state.messages.append({
                                     "role": "assistant", 
                                     "content": resp_text, 
                                     "fig": fig
                                 })
+                            break # 成功执行，跳出循环！
                             
                         except Exception as e:
-                            err_msg = f"**Plot Generation Error:** `{str(e)}`\n\n*Attempted Config:*\n```json\n{json.dumps(plot_payload, indent=2)}\n```"
-                            st.error(err_msg)
-                            st.session_state.messages.append({"role": "assistant", "content": err_msg})
+                            # 捕获失败，准备下一轮反射
+                            if attempt < max_retries:
+                                error_feedback = f"Error: {str(e)}\nAttempted SQL:\n{gen_sql}\nx_axis: {x_col}, bars: {y_bars}, lines: {y_lines}"
+                            else:
+                                err_msg = f"**Plot Generation Error (After retry):** `{str(e)}`\n\n*Attempted Config:*\n```json\n{json.dumps(plot_payload, indent=2)}\n```"
+                                st.error(err_msg)
+                                st.session_state.messages.append({"role": "assistant", "content": err_msg})
             
             # Step D: General Chat Fallback
             elif intent == "GENERAL_CHAT":

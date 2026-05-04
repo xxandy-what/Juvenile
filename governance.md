@@ -16,6 +16,19 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-03] Phase 6: Architecture Hardening & Self-Correction
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - **View Abstraction (AD-005)**: Shifted to a Temporary View pattern (`current_working_set`), ensuring the LLM always queries a pre-filtered dataset without needing complex `WHERE` clause logic in the prompt.
+  - **Self-Correction Engine**: Implemented a "Single-shot Reflection" loop; the assistant now intercepts database errors (e.g., column mismatches) and self-fixes its SQL before the user sees an error.
+  - **Enhanced Sandbox Defense**: Deployed a regex-based firewall using word boundaries to block malicious DuckDB functions like `READ_CSV` or `SYSTEM` calls.
+  - **Data Portability**: Added CSV export functionality for all AI-generated data summaries, improving user workflow for downstream analysis.
+  - **Stability Fixes**: Resolved issues where complex multi-metric groupings caused SQL syntax errors by enforcing explicit `CASE WHEN` pivoting.
+
+---
+
 ### [2026-05-03] Phase 5: Refinement & Polish (UX & Integration)
 
 - **Status**: Completed
