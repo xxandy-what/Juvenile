@@ -334,7 +334,6 @@ def render_ai_assistant_tab() -> None:
                     
                     max_retries = 1
                     error_feedback = None
-                    success = False
                     
                     for attempt in range(max_retries + 1):
                         sql_payload = generate_duckdb_sql(prompt, filter_context, error_feedback)
@@ -353,7 +352,6 @@ def render_ai_assistant_tab() -> None:
                             result_df = execute_read_only_sql(gen_sql, data_path, use_global_filters)
                             
                             # === 成功拦截 ===
-                            success = True
                             if result_df.empty:
                                 warn_msg = f"**No Data Found.**\n\nYour query executed successfully, but returned 0 rows. This is likely due to the current Preliminary filters being too restrictive.\n\n*Attempted SQL:*\n```sql\n{gen_sql}\n```"
                                 st.warning(warn_msg)
