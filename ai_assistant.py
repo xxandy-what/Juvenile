@@ -4,6 +4,7 @@ import duckdb
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+from typing import Optional
 from plotly.subplots import make_subplots
 from google import genai
 from google.genai import types
@@ -57,7 +58,7 @@ def parse_user_intent(user_prompt: str) -> dict:
         return {"intent": "ERROR", "reasoning": str(e)}
 
 
-def generate_duckdb_sql(user_prompt: str, filter_context: str, error_feedback: str = None) -> dict:
+def generate_duckdb_sql(user_prompt: str, filter_context: str, error_feedback: Optional[str] = None) -> dict:
     """
     Translates natural language into a valid, read-only DuckDB SQL query.
     [Phase 6] Now supports self-correction via error_feedback.
@@ -125,7 +126,7 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str, error_feedback: s
     except Exception as e:
         return {"error": str(e)}
 
-def generate_plot_config(user_prompt: str, filter_context: str, error_feedback: str = None) -> dict:
+def generate_plot_config(user_prompt: str, filter_context: str, error_feedback: Optional[str] = None) -> dict:
     """
     Translates natural language into both a SQL query for data aggregation
     and configuration parameters for Plotly visualization.
@@ -348,7 +349,9 @@ def render_ai_assistant_tab() -> None:
                         explanation = sql_payload.get("explanation", "")
                         
                         try:
-                            # 尝试执行 SQL
+                            if not isinstance(data_path, str):
+                                raise ValueError("System error: Valid data_path not found in session state.")
+
                             result_df = execute_read_only_sql(gen_sql, data_path, use_global_filters)
                             
                             # === 成功拦截 ===
