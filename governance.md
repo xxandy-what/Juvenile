@@ -16,6 +16,17 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-04] Phase 8: Dynamic Schema Injection & Anti-Hallucination
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - **Dynamic Schema Context**: Replaced the static, hardcoded schema string in AI prompts with a real-time database scanning mechanism (`build_dynamic_schema_context`).
+  - **Prompt Staleness Resolution**: The LLM now receives the exact categorical enumeration values and numeric ranges based on the live DuckDB state, effectively preventing hallucinations when underlying data changes (e.g., adding new observation years or removing insurance plans).
+  - **Test Resilience**: Updated `test_wrapper_ai.py` with a mock schema context to ensure UI End-to-End tests remain completely isolated and pass cleanly despite the new dynamic architectural requirements.
+
+---
+
 ### [2026-05-04] Phase 7: Automated Testing & Decoupling
 
 - **Status**: Completed

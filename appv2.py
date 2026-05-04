@@ -1139,6 +1139,37 @@ def render_welcome_tab(source_name: str, data_path: str, available_columns: List
         dict_rows = [{"Field": c, "Friendly": human(c), "Note": FIELD_NOTES.get(c, "")} for c in available_columns]
         st.dataframe(pd.DataFrame(dict_rows), width="stretch", hide_index=True, height=420)
 
+def build_dynamic_schema_context(path: str, nrows: Optional[int], available_columns: List[str]) -> str:
+    """
+    [Phase 8] Dynamically scans the database to build an accurate schema prompt for the LLM.
+    """
+    lines = []
+    
+    # 1. 扫描分类列 (Categorical)
+    lines.append("Categorical Columns (Use for GROUP BY or WHERE):")
+    cat_cols = [c for c in available_columns if c in CAT_COLUMNS]
+    for col in cat_cols:
+        # 获取最新的去重选项
+        opts = category_options_query(path, nrows, col)
+        # 剔除界面专用的 "(Missing)" 占位符
+        opts_clean = [str(x) for x in opts if str(x) != "(Missing)"]
+        lines.append(f"- {col} ({', '.join(opts_clean)})")
+
+    # 2. 扫描数值列 (Numeric)
+    lines.append("\nNumeric Columns (Use for aggregations or filtering ranges):")
+    num_cols = [c for c in available_columns if c in NUM_COLUMNS]
+    for col in num_cols:
+        # 获取最新的最大最小值
+        lo, hi = numeric_bounds_query(path, nrows, col)
+        if lo is not None and hi is not None:
+            if col in INT_FIELDS:
+                lines.append(f"- {col} (Range: {int(lo)} to {int(hi)})")
+            else:
+                lines.append(f"- {col} (Range: {float(lo):.2f} to {float(hi):.2f})")
+        else:
+            lines.append(f"- {col}")
+
+    return "\n".join(lines)
 
 def render_preliminary_filters_tab(
     path: str,
@@ -1774,7 +1805,10 @@ with welcome_tab:
     safe_render_tab("Welcome", lambda: render_welcome_tab(source_name, data_path, available_columns))
 
 with tab_ai:
-    safe_render_tab("AI Assistant", render_ai_assistant_tab)
+    # 1. 实时构建动态 Schema 文本
+    dynamic_schema = build_dynamic_schema_context(data_path, data_nrows, available_columns)
+    # 2. 使用 lambda 函数将参数安全地传递给渲染器
+    safe_render_tab("AI Assistant", lambda: render_ai_assistant_tab(dynamic_schema))
 
 with tab_prelim:
     safe_render_tab(
