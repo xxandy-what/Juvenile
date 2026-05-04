@@ -41,8 +41,9 @@ def parse_user_intent(user_prompt: str) -> dict:
     system_prompt = '''
     You are an intelligent Actuarial Data Assistant routing engine.
     Analyze the user's input and classify their intent into exactly one of the following categories:
-    - "SQL_QUERY": The user is asking a data question that requires querying the DuckDB mortality database.
-    - "PLOT_GEN": The user is asking to visualize data or generate a chart/plot.
+    - "SQL_QUERY": The user is asking to view data, lists, or explicitly mentions "table", "pivot table", "dataframe", or "rows and columns".
+    - "PLOT_GEN": The user is asking for visualizations, plots, trend displays, or explicitly mentions "graph", "chart", "plot", or "histogram".
+    [CRITICAL RULE]: If the user mentions "Pivot table", this usually means they want a cross-tabulated data table. You MUST classify this as "SQL_QUERY" and NOT "PLOT_GEN".
     - "GENERAL_CHAT": The user is just saying hello, asking general non-data questions, or seeking help.
 
     You MUST respond in valid JSON format with the following schema:
@@ -157,6 +158,10 @@ def generate_plot_config(user_prompt: str, filter_context: str) -> dict:
     1. You MUST use the exact string `{{source_table}}` as the table name in your FROM clause. Do NOT use "mortality".
     2. ONLY use the exact column names listed above.
     3. Always use read-only SELECT statements.
+    4. If the user asks to split, group, or color the chart by a categorical column (like Sex or Insurance_Plan), you MUST pivot that category in your SQL using CASE WHEN (e.g., `SUM(CASE WHEN Sex='F' THEN Policies_Exposed ELSE 0 END) AS F_Policies_Exposed`). The final SQL output must have ONE column for the X-axis and MULTIPLE separate columns for the Y-axis.
+    5. If the user specifies a 'Bin size' for a numeric X-axis (e.g., Age), you MUST format the resulting bin as a string range. 
+       Example DuckDB SQL for Bin size 5: `CAST(CAST(FLOOR(Attained_Age/5)*5 AS INT) AS VARCHAR) || '-' || CAST(CAST(FLOOR(Attained_Age/5)*5 + 4 AS INT) AS VARCHAR)`.
+    6. Ensure your SQL column aliases are human-readable and presentation-ready (e.g., use `"A/E (Count) | M"` instead of `AE_Count_Male`, and `"Actual Deaths"` instead of `Total_Death_Count`). These aliases will be directly used as chart legends.
 
     # Task
     1. Write a DuckDB SQL query to aggregate the data.
