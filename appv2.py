@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from ai_assistant import render_ai_assistant_tab
 from plotly.subplots import make_subplots
+from utils import safe_div, sql_ident
 
 
 # ---------------------------
@@ -230,21 +231,10 @@ def human(col: str) -> str:
     return FRIENDLY.get(col, col)
 
 
-def safe_div(n: pd.Series, d: pd.Series) -> pd.Series:
-    d2 = d.replace(0, np.nan)
-    out = n / d2
-    return out.replace([np.inf, -np.inf], np.nan)
-
-
 def safe_filename(text: str) -> str:
     text = re.sub(r"[^\w\-.]+", "_", str(text))
     text = re.sub(r"_+", "_", text).strip("_")
     return text
-
-
-def sql_ident(name: str) -> str:
-    return '"' + str(name).replace('"', '""') + '"'
-
 
 def sql_literal(value) -> str:
     if value is None:
