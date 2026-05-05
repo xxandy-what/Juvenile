@@ -16,6 +16,18 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-02] Phase 3: Text-to-SQL Core Data Pipeline
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - Implemented schema-aware natural language to DuckDB SQL generation using `gemini-2.5-flash` with strict adherence to actuarial metrics logic (e.g., A/E calculation).
+  - Built an execution sandbox (`execute_read_only_sql`) to enforce read-only `SELECT` statements and prevent data modification.
+  - Integrated dynamic data path binding to query underlying Parquet/CSV files directly, avoiding massive Pandas memory overhead.
+  - Wired the pipeline into the Streamlit chat UI, persisting generated DataFrames within `st.session_state.messages` for seamless tab switching.
+
+---
+
 ### [2026-05-02] Phase 2: Gemini API Integration for Intent Parsing
 
 - **Status**: Completed
@@ -27,11 +39,6 @@ This document tracks major architectural decisions, version changes, and develop
 
 ---
 
-### [In Progress] Phase 3: Text-to-SQL Core Data Pipeline
-
-- **Status**: In Progress
-- **Objective**: Implement schema-aware natural language to DuckDB SQL generation, ensuring secure, read-only query execution and dynamic DataFrame rendering within the chat interface.
-
 ### [2024-10-24] Phase 1: UI Skeleton & Infrastructure Setup
 
 - **Status**: Completed
@@ -42,10 +49,3 @@ This document tracks major architectural decisions, version changes, and develop
   - Infrastructure Upgrade: Established GitHub Actions CI pipeline (`lint.yml`) for automated code linting.
   - Code Hardening: Resolved 17+ linting and typing issues; introduced `pyproject.toml` to standardize environment configurations.
   - Validated "Echo Mode" stability across Streamlit tab-switches.
-
----
-
-### [In Progress] Phase 2: Gemini API Integration for Intent Parsing
-
-- **Status**: In Progress
-- **Objective**: Implement Natural Language classification (SQL Query vs. Plot Generation vs. General Chat).
