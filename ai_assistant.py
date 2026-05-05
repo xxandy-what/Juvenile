@@ -2,6 +2,8 @@ import json
 import duckdb
 import pandas as pd
 import streamlit as st
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from google import genai
 from google.genai import types
 
@@ -99,6 +101,64 @@ def generate_duckdb_sql(user_prompt: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+def generate_plot_config(user_prompt: str) -> dict:
+    """
+    Translates natural language into both a SQL query for data aggregation
+    and configuration parameters for Plotly visualization.
+    """
+    system_prompt = '''
+    You are an expert Actuarial Data Scientist and Data Visualization Specialist.
+    The user wants to generate a chart based on the DuckDB mortality database.
+
+    # Data Schema
+    Table Name: {source_table}
+
+    Categorical Columns: Observation_Year, Age_Ind, Sex, Smoker_Status, Insurance_Plan, Face_Amount_Band, SOA_Post_Lvl_Ind, Preferred_Class
+    Numeric Columns: Issue_Age, Duration, Issue_Year, Attained_Age, Amount_Exposed, Policies_Exposed, Death_Claim_Amount, Death_Count, ExpDth_VBT2015_Cnt, ExpDth_VBT2015_Amt
+
+    # Derived Metrics Logic (IMPORTANT)
+    - AE_Count = SUM(Death_Count) / NULLIF(SUM(ExpDth_VBT2015_Cnt), 0)
+    - AE_Amount = SUM(Death_Claim_Amount) / NULLIF(SUM(ExpDth_VBT2015_Amt), 0)
+
+    # Strict Rules for SQL Generation:
+    1. You MUST use the exact string `{source_table}` as the table name in your FROM clause. Do NOT use "mortality".
+    2. ONLY use the exact column names listed above.
+    3. Always use read-only SELECT statements.
+
+    # Task
+    1. Write a DuckDB SQL query to aggregate the data.
+    2. Determine the best Plotly chart type: "bar", "line", "pie", or "combo". 
+       - Use "combo" if the user asks for both volume (e.g., Death_Count) and ratio (e.g., A/E) on the same chart.
+    3. Identify the exact column names from your generated SQL output that map to the X and Y axes. 
+
+    You MUST respond in valid JSON format:
+    {
+        "sql": "DuckDB SELECT query using {source_table}",
+        "chart_type": "bar" | "line" | "pie" | "combo",
+        "x_axis": "Exact column name for X axis",
+        "y_axis_bars": ["List of column names for bar charts (leave empty if none)"],
+        "y_axis_lines": ["List of column names for line charts (leave empty if none)"],
+        "title": "A clear title for the chart",
+        "explanation": "Brief explanation of what the chart shows"
+    }
+    '''
+    
+    try:
+        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f"{system_prompt}\n\nUser Input: {user_prompt}",
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1
+            )
+        )
+        if not response.text:
+            raise ValueError("Received empty response from LLM.")
+        return json.loads(response.text)
+    except Exception as e:
+        return {"error": str(e)}
+    
 
 def execute_read_only_sql(sql: str, data_path: str) -> pd.DataFrame:
     """
@@ -212,9 +272,82 @@ def render_ai_assistant_tab() -> None:
                             st.error(err_msg)
                             st.session_state.messages.append({"role": "assistant", "content": err_msg})
             
-            # Step C: Placeholder for future phases
-            else:
-                reasoning = intent_result.get("reasoning", "")
-                resp_text = f"**Intent Detected:** `{intent}`\n\n**Reasoning:** {reasoning}\n\n*(Feature unlock pending: Plot generation is scheduled for Phase 4.)*"
+            # Step C: Plot Generation Pipeline (Phase 4)
+            elif intent == "PLOT_GEN":
+                with st.spinner("Designing chart and fetching data..."):
+                    plot_payload = generate_plot_config(prompt)
+                    
+                    if "error" in plot_payload:
+                        err_text = f"Failed to generate plot config: {plot_payload['error']}"
+                        st.error(err_text)
+                        st.session_state.messages.append({"role": "assistant", "content": err_text})
+                    else:
+                        gen_sql = plot_payload.get("sql", "")
+                        chart_type = plot_payload.get("chart_type", "bar")
+                        x_col = plot_payload.get("x_axis")
+                        y_bars = plot_payload.get("y_axis_bars", [])
+                        y_lines = plot_payload.get("y_axis_lines", [])
+                        title = plot_payload.get("title", "Generated Chart")
+                        explanation = plot_payload.get("explanation", "")
+                        
+                        try:
+                            # 1. Fetch data
+                            data_path = st.session_state.get("data_path")
+                            if not isinstance(data_path, str):
+                                raise ValueError("System error: Valid data_path not found in session state.")
+                            result_df = execute_read_only_sql(gen_sql, data_path)
+                            
+                            # 2. Build Advanced Plotly figure
+                            fig = make_subplots(specs=[[{"secondary_y": True}]])
+                            
+                            # Add Bar traces (Primary Y-axis)
+                            for y_col in y_bars:
+                                if y_col in result_df.columns:
+                                    fig.add_trace(
+                                        go.Bar(x=result_df[x_col].astype(str), y=result_df[y_col], name=y_col),
+                                        secondary_y=False
+                                    )
+                                    
+                            # Add Line traces (Secondary Y-axis)
+                            for y_col in y_lines:
+                                if y_col in result_df.columns:
+                                    fig.add_trace(
+                                        go.Scatter(x=result_df[x_col].astype(str), y=result_df[y_col], name=y_col, mode='lines+markers'),
+                                        secondary_y=True if chart_type == "combo" else False
+                                    )
+                                    
+                            # Formatting
+                            fig.update_layout(
+                                title=title, 
+                                barmode='group',
+                                hovermode="x unified",
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            )
+                            fig.update_xaxes(title_text=x_col)
+                            
+                            if chart_type == "combo":
+                                fig.update_yaxes(title_text="Volume (Bars)", secondary_y=False)
+                                fig.update_yaxes(title_text="Ratio (Lines)", secondary_y=True, tickformat=".2f")
+                                
+                            # 3. Build UI Response
+                            resp_text = f"**Explanation:** {explanation}\n\n*Generated SQL:*\n```sql\n{gen_sql}\n```"
+                            st.markdown(resp_text)
+                            st.plotly_chart(fig, width="stretch")
+                            
+                            # 4. Persist figure to state
+                            st.session_state.messages.append({
+                                "role": "assistant", 
+                                "content": resp_text, 
+                                "fig": fig
+                            })
+                            
+                        except Exception as e:
+                            err_msg = f"**Plot Generation Error:** `{str(e)}`\n\n*Attempted Config:*\n```json\n{json.dumps(plot_payload, indent=2)}\n```"
+                            st.error(err_msg)
+                            st.session_state.messages.append({"role": "assistant", "content": err_msg})
+            
+            # Step D: General Chat Fallback
+            elif intent == "GENERAL_CHAT":
+                resp_text = "I am ready to help you analyze mortality data. Try asking me a data question like 'Show me a bar chart of total death count by sex'."
                 st.info(resp_text)
                 st.session_state.messages.append({"role": "assistant", "content": resp_text})

@@ -17,10 +17,8 @@ from plotly.subplots import make_subplots
 # ---------------------------
 # Safely fetch the API key from Streamlit secrets
 if "GEMINI_API_KEY" not in st.secrets:
-    st.error("🚨 缺少 API 密钥：请在 .streamlit/secrets.toml 中配置 GEMINI_API_KEY。")
+    st.error("Lack of API Key: Please configure GEMINI_API_KEY in .streamlit/secrets.toml.")
     st.stop()
-
-
 
 st.set_page_config(page_title="SOA-style Mortality Explorer (DuckDB)", layout="wide")
 
