@@ -16,6 +16,18 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-04] Phase 7: Automated Testing & Decoupling
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - Established `pytest` framework with Unit, Mock, and E2E coverage.
+  - Refactored `appv2.py`: Extracted core utilities to `utils.py` to achieve logical decoupling.
+  - Resolved "Phantom Form" context bleed issues in Streamlit testing via Isolated Wrapper strategy.
+  - Verified 100% test pass rate for SQL security firewall and LLM intent parsing.
+
+---
+
 ### [2026-05-03] Phase 6: Architecture Hardening & Self-Correction
 
 - **Status**: Completed
