@@ -1,0 +1,17 @@
+# 忽略虚拟环境
+venv/
+.venv/
+
+# 忽略 Python 缓存文件
+__pycache__/
+*.pyc
+
+# 忽略 IDE 配置文件
+.idea/
+.vscode/
+
+# 忽略可能的数据集大文件（根据你的项目情况）
+data/
+script/data/
+*.parquet
+*.csv
