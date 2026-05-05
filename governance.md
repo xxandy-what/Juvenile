@@ -16,6 +16,16 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-04] Phase 9: Conversational Memory & Multi-turn Context
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - **Multi-turn Memory**: Implemented `get_recent_chat_history` to pass previous dialogue turns to the Gemini API, enabling the AI to answer context-dependent follow-up questions.
+  - **Payload Optimization**: Safely filtered out DataFrame and Plotly objects from the history payload to prevent token bloat and API errors.
+
+---
+
 ### [2026-05-04] Phase 8: Dynamic Schema Injection & Anti-Hallucination
 
 - **Status**: Completed
