@@ -58,10 +58,10 @@ def parse_user_intent(user_prompt: str) -> dict:
         return {"intent": "ERROR", "reasoning": str(e)}
 
 
-def generate_duckdb_sql(user_prompt: str, filter_context: str, error_feedback: Optional[str] = None) -> dict:
+def generate_duckdb_sql(user_prompt: str, filter_context: str, schema_context: str, error_feedback: Optional[str] = None) -> dict:
     """
     Translates natural language into a valid, read-only DuckDB SQL query.
-    [Phase 6] Now supports self-correction via error_feedback.
+    [Phase 8 Refactored] Now accepts dynamic schema_context to prevent schema drift.
     """
     system_prompt = f'''
     You are an expert Actuarial Data Scientist and DuckDB SQL developer.
@@ -72,22 +72,8 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str, error_feedback: O
 
     # Data Schema
     Table Name: current_working_set
-
-    Categorical Columns (Use for GROUP BY or WHERE):
-    - Observation_Year (2012-2019)
-    - Age_Ind (0=ANB, 1=ALB, 2=Age Next Birthday)
-    - Sex (F = Female, M = Male)
-    - Smoker_Status (N = Nonsmoker, S = Smoker, U = Uni-smoke)
-    - Insurance_Plan (Perm, Term, UL, ULSG, VL, VLSG, Other)
-    - Face_Amount_Band (01 to 11)
-    - SOA_Post_Lvl_Ind (N/A, NLT, PLT, ULT, WLT)
-    - Preferred_Class (1, 2, 3, 4, NA, U)
-
-    Numeric Columns (Use for aggregations like SUM, AVG):
-    - Issue_Age, Duration, Issue_Year, Attained_Age
-    - Amount_Exposed, Policies_Exposed
-    - Death_Claim_Amount, Death_Count
-    - ExpDth_VBT2015_Cnt, ExpDth_VBT2015_Amt
+    
+    {schema_context}
 
     # Derived Metrics Logic (Crucial)
     - A/E (Count) = SUM(Death_Count) / NULLIF(SUM(ExpDth_VBT2015_Cnt), 0)
@@ -95,7 +81,7 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str, error_feedback: O
 
     # Strict Rules:
     1. You MUST use the exact string `current_working_set` as the table name in your FROM clause. Do NOT use {{source_table}} or "mortality".
-    2. ONLY use the exact column names listed above. Do NOT hallucinate columns.
+    2. ONLY use the exact column names provided in the Data Schema above. Do NOT hallucinate columns.
     3. ALWAYS use read-only SELECT statements. Do NOT generate INSERT, UPDATE, or DROP.
     4. Always use NULLIF for denominators to prevent division by zero errors.
 
@@ -126,7 +112,7 @@ def generate_duckdb_sql(user_prompt: str, filter_context: str, error_feedback: O
     except Exception as e:
         return {"error": str(e)}
 
-def generate_plot_config(user_prompt: str, filter_context: str, error_feedback: Optional[str] = None) -> dict:
+def generate_plot_config(user_prompt: str, filter_context: str, schema_context: str, error_feedback: Optional[str] = None) -> dict:
     """
     Translates natural language into both a SQL query for data aggregation
     and configuration parameters for Plotly visualization.
@@ -140,9 +126,8 @@ def generate_plot_config(user_prompt: str, filter_context: str, error_feedback: 
 
     # Data Schema
     Table Name: current_working_set
-
-    Categorical Columns: Observation_Year, Age_Ind, Sex, Smoker_Status, Insurance_Plan, Face_Amount_Band, SOA_Post_Lvl_Ind, Preferred_Class
-    Numeric Columns: Issue_Age, Duration, Issue_Year, Attained_Age, Amount_Exposed, Policies_Exposed, Death_Claim_Amount, Death_Count, ExpDth_VBT2015_Cnt, ExpDth_VBT2015_Amt
+    
+    {schema_context}
 
     # Derived Metrics Logic (IMPORTANT)
     - AE_Count = SUM(Death_Count) / NULLIF(SUM(ExpDth_VBT2015_Cnt), 0)
@@ -150,17 +135,16 @@ def generate_plot_config(user_prompt: str, filter_context: str, error_feedback: 
 
     # Strict Rules for SQL Generation:
     1. You MUST use the exact string `current_working_set` as the table name in your FROM clause. Do NOT use {{source_table}} or "mortality".
-    2. ONLY use the exact column names listed above.
+    2. ONLY use the exact column names provided in the Data Schema above.
     3. Always use read-only SELECT statements.
     4. If the user asks to split, group, or color the chart by a categorical column (like Sex or Insurance_Plan), you MUST pivot that category in your SQL using CASE WHEN (e.g., `SUM(CASE WHEN Sex='F' THEN Policies_Exposed ELSE 0 END) AS F_Policies_Exposed`). The final SQL output must have ONE column for the X-axis and MULTIPLE separate columns for the Y-axis.
     5. If the user specifies a 'Bin size' for a numeric X-axis (e.g., Age), you MUST format the resulting bin as a string range. 
        Example DuckDB SQL for Bin size 5: `CAST(CAST(FLOOR(Attained_Age/5)*5 AS INT) AS VARCHAR) || '-' || CAST(CAST(FLOOR(Attained_Age/5)*5 + 4 AS INT) AS VARCHAR)`.
-    6. Ensure your SQL column aliases are human-readable and presentation-ready (e.g., use `"A/E (Count) | M"` instead of `AE_Count_Male`, and `"Actual Deaths"` instead of `Total_Death_Count`). These aliases will be directly used as chart legends.
+    6. Ensure your SQL column aliases are human-readable and presentation-ready.
 
     # Task
     1. Write a DuckDB SQL query to aggregate the data.
     2. Determine the best Plotly chart type: "bar", "line", "pie", or "combo". 
-       - Use "combo" if the user asks for both volume (e.g., Death_Count) and ratio (e.g., A/E) on the same chart.
     3. Identify the exact column names from your generated SQL output that map to the X and Y axes. 
 
     You MUST respond in valid JSON format:
@@ -273,7 +257,7 @@ def execute_read_only_sql(sql: str, data_path: str, use_global_filters: bool) ->
         con.close()
 
 
-def render_ai_assistant_tab() -> None:
+def render_ai_assistant_tab(schema_context: str) -> None:
     """
     The main UI renderer for the AI Assistant tab in Streamlit.
     """
@@ -337,7 +321,8 @@ def render_ai_assistant_tab() -> None:
                     error_feedback = None
                     
                     for attempt in range(max_retries + 1):
-                        sql_payload = generate_duckdb_sql(prompt, filter_context, error_feedback)
+                        # 在这里传入 schema_context
+                        sql_payload = generate_duckdb_sql(prompt, filter_context, schema_context, error_feedback)
                         
                         if "error" in sql_payload:
                             err_text = f"Failed to generate SQL: {sql_payload['error']}"
@@ -402,8 +387,8 @@ def render_ai_assistant_tab() -> None:
                     error_feedback = None
                     
                     for attempt in range(max_retries + 1):
-                        # 注意这里传入了 error_feedback
-                        plot_payload = generate_plot_config(prompt, filter_context, error_feedback)
+                        # 在这里传入 schema_context
+                        plot_payload = generate_plot_config(prompt, filter_context, schema_context, error_feedback)
                         
                         if "error" in plot_payload:
                             err_text = f"Failed to generate plot config: {plot_payload['error']}"
