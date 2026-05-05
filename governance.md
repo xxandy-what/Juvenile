@@ -21,6 +21,20 @@ This document tracks major architectural decisions, version changes, and develop
 - **Status**: Completed
 - **Author**: [SeanChen327]
 - **Key Changes**:
+  - **Global Filter Synchronization**: Integrated `get_active_filters_context` to allow the AI Assistant to inherit the state of the Preliminary filters tab.
+  - **Professional Error Handling**: Implemented a humanized error-catching layer in `execute_read_only_sql` with descriptive English messages.
+  - **Intent Routing Hardening**: Refined the classifier to explicitly map "Pivot table" keywords to `SQL_QUERY`, ensuring users receive tabular data instead of unwanted charts.
+  - **Plotting Precision (Sawtooth Fix)**: Updated the SQL generation engine to force SQL-level pivoting (`CASE WHEN`) for split dimensions, ensuring clean multi-line rendering in Plotly.
+  - **Aesthetic Formatting**: Automated the formatting of numeric bins as string ranges (e.g., "0-4") and enforced human-readable column aliases for professional chart legends.
+  - **Security & UX**: Refined the SQL interceptor and added warnings for empty result sets to prevent user confusion.
+
+---
+
+### [2026-05-03] Phase 5: Refinement & Polish (UX & Integration)
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
   - **Global Filter Synchronization**: Integrated `get_active_filters_context` to allow the AI Assistant to inherit the state of the Preliminary filters tab, ensuring query consistency.
   - **Professional Error Handling**: Implemented a humanized error-catching layer in `execute_read_only_sql` with descriptive English messages for Column Mismatches, Security Restrictions, and Payload limits.
   - **Security Hardening**: Refined the SQL interceptor to distinguish between malicious DDL/DML attempts and invalid AI-generated responses (empty/NA SQL).
