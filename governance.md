@@ -16,6 +16,17 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-05] Phase 10: Agentic Data Analysis & Automated Reporting
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - **Autonomous Agent Pipeline**: Implemented a two-pass LLM architecture (Planner & Summarizer) to handle broad, exploratory questions (e.g., "What is the trend of Duration?").
+  - **Intent Routing Update**: Added `DATA_ANALYSIS` intent to `parse_user_intent` for routing open-ended analytical queries.
+  - **Dynamic Report & Visualization**: The Agent autonomously writes DuckDB SQL, fetches aggregated data, renders a Plotly chart, and generates a comprehensive textual analysis report directly in the chat UI.
+
+---
+
 ### [2026-05-04] Phase 9: Conversational Memory & Multi-turn Context
 
 - **Status**: Completed
