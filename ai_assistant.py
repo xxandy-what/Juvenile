@@ -266,6 +266,9 @@ def generate_analysis_plan(user_prompt: str, filter_context: str, schema_context
             contents=system_prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2)
         )
+        # --- Add this safety check ---
+        if not response.text:
+            raise ValueError("Received empty response from LLM.")
         return json.loads(response.text)
     except Exception as e:
         return {"error": str(e)}
@@ -294,6 +297,9 @@ def generate_analysis_report(user_prompt: str, data_context: str) -> str:
             contents=system_prompt,
             config=types.GenerateContentConfig(temperature=0.4)
         )
+        # --- Add this safety check ---
+        if not response.text:
+            return "Report generation failed: Received empty response from LLM."
         return response.text
     except Exception as e:
         return f"Report generation failed: {str(e)}"
@@ -626,6 +632,11 @@ def render_ai_assistant_tab(schema_context: str) -> None:
                             collected_data_markdown = ""
                             
                             # 2. 执行计划 (Executor) - 获取图表数据
+                            # --- Add this type validation block ---
+                            if not isinstance(data_path, str):
+                                raise ValueError("System error: Valid data_path not found in session state.")
+                            # --------------------------------------
+
                             chart_config = plan.get("chart", {})
                             chart_df = execute_read_only_sql(chart_config.get("sql", ""), data_path, use_global_filters)
                             if len(chart_df) > 0:
