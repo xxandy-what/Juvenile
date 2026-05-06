@@ -55,14 +55,16 @@ def parse_user_intent(user_prompt: str, chat_history: str = "") -> dict:
     system_prompt = '''
     You are an intelligent Actuarial Data Assistant routing engine.
     Analyze the user's input and classify their intent into exactly one of the following categories:
-    - "SQL_QUERY": The user is asking to view data, lists, or explicitly mentions "table", "pivot table", "dataframe", or "rows and columns".
-    - "PLOT_GEN": The user is asking for visualizations, plots, trend displays, or explicitly mentions "graph", "chart", "plot", or "histogram".
-    [CRITICAL RULE]: If the user mentions "Pivot table", this usually means they want a cross-tabulated data table. You MUST classify this as "SQL_QUERY" and NOT "PLOT_GEN".
+    - "SQL_QUERY": The user is asking for a specific data point, table, or simple aggregation (e.g., "Give me a table...", "What is the death count...").
+    - "PLOT_GEN": The user explicitly asks for a single specific chart (e.g., "Draw a bar chart...", "Plot the trend...").
+    - "DATA_ANALYSIS": The user is asking a broad, open-ended question that requires deep exploration, finding trends, outliers, or general insights (e.g., "What can you tell me about Duration?", "Analyze the trends by observation year", "Are there any outliers?").
     - "GENERAL_CHAT": The user is just saying hello, asking general non-data questions, or seeking help.
+
+    [CRITICAL RULE]: If the user mentions "Pivot table", this usually means they want a cross-tabulated data table. Classify as "SQL_QUERY".
 
     You MUST respond in valid JSON format with the following schema:
     {
-        "intent": "SQL_QUERY" | "PLOT_GEN" | "GENERAL_CHAT",
+        "intent": "SQL_QUERY" | "PLOT_GEN" | "DATA_ANALYSIS" | "GENERAL_CHAT",
         "reasoning": "Brief explanation of why you chose this intent"
     }
     '''
@@ -213,6 +215,89 @@ def generate_plot_config(user_prompt: str, filter_context: str, schema_context: 
     except Exception as e:
         return {"error": str(e)}
     
+
+def generate_analysis_plan(user_prompt: str, filter_context: str, schema_context: str) -> dict:
+    """
+    [Phase 10] Agentic Planner: 决定如何通过图表和数据表来分析用户提出的宽泛问题。
+    """
+    system_prompt = f'''
+    You are an Expert Actuarial Data Scientist.
+    The user asked a general analytical question: "{user_prompt}"
+
+    # Global Filters Context
+    {filter_context}
+
+    # Data Schema (Table: current_working_set)
+    {schema_context}
+
+    # Derived Metrics Logic
+    - A/E (Count) = SUM(Death_Count) / NULLIF(SUM(ExpDth_VBT2015_Cnt), 0)
+    - A/E (Amount) = SUM(Death_Claim_Amount) / NULLIF(SUM(ExpDth_VBT2015_Amt), 0)
+
+    # Task
+    Plan a data analysis strategy. Generate EXACTLY ONE chart configuration to visualize the trend, AND EXACTLY ONE simple SQL query to find outliers or summary stats.
+    
+    Strict Rules for SQL:
+    1. MUST use `current_working_set` as the table name.
+    2. ONLY use exact schema columns.
+    3. Always use NULLIF for denominators.
+
+    Output a strictly valid JSON in this format:
+    {{
+        "chart": {{
+            "sql": "DuckDB SELECT query to aggregate data for the chart",
+            "chart_type": "line" | "bar" | "combo",
+            "x_axis": "Column name for X axis",
+            "y_axis_lines": ["List of columns for lines (e.g., A/E ratios)"],
+            "y_axis_bars": ["List of columns for bars (e.g., Death_Count)"],
+            "title": "Chart Title"
+        }},
+        "outlier_query": {{
+            "sql": "DuckDB SELECT query to fetch top 5 outliers or key summary stats",
+            "title": "Data Context for Analysis"
+        }}
+    }}
+    '''
+    
+    try:
+        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=system_prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2)
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        return {"error": str(e)}
+
+def generate_analysis_report(user_prompt: str, data_context: str) -> str:
+    """
+    [Phase 10] Agentic Summarizer: 根据查询出的真实数据，生成最终的文字洞察报告。
+    """
+    system_prompt = f'''
+    You are an Expert Actuarial Data Scientist. 
+    The user asked: "{user_prompt}"
+    
+    Here is the aggregated data extracted directly from the database based on the user's question:
+    {data_context}
+    
+    Based ONLY on the data provided above, write a professional analytical report.
+    - Highlight major trends (e.g., upwards/downwards).
+    - Point out specific anomalies or outliers (e.g., specific Durations with very high A/E ratios).
+    - Use Markdown formatting (bolding, bullet points) to make it highly readable.
+    - Do not invent numbers. Reference the specific data points in your explanation.
+    '''
+    try:
+        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=system_prompt,
+            config=types.GenerateContentConfig(temperature=0.4)
+        )
+        return response.text
+    except Exception as e:
+        return f"Report generation failed: {str(e)}"
+
 
 def execute_read_only_sql(sql: str, data_path: str, use_global_filters: bool) -> pd.DataFrame:
     """
@@ -523,6 +608,75 @@ def render_ai_assistant_tab(schema_context: str) -> None:
                                 st.error(err_msg)
                                 st.session_state.messages.append({"role": "assistant", "content": err_msg})
             
+            # Step C.5: Agentic Data Analysis Pipeline (NEW Phase 10)
+            elif intent == "DATA_ANALYSIS":
+                with st.spinner("Agent is designing an analysis plan and fetching data..."):
+                    filter_context = get_active_filters_context(use_global_filters)
+                    data_path = st.session_state.get("data_path")
+                    
+                    # 1. 制定计划 (Planner)
+                    plan = generate_analysis_plan(prompt, filter_context, schema_context)
+                    
+                    if "error" in plan:
+                        err_msg = f"Failed to plan analysis: {plan['error']}"
+                        st.error(err_msg)
+                        st.session_state.messages.append({"role": "assistant", "content": err_msg})
+                    else:
+                        try:
+                            collected_data_markdown = ""
+                            
+                            # 2. 执行计划 (Executor) - 获取图表数据
+                            chart_config = plan.get("chart", {})
+                            chart_df = execute_read_only_sql(chart_config.get("sql", ""), data_path, use_global_filters)
+                            if len(chart_df) > 0:
+                                collected_data_markdown += f"### Chart Data ({chart_config.get('title')})\n{chart_df.head(100).to_markdown(index=False)}\n\n"
+                                
+                            # 获取 Outlier 数据
+                            outlier_config = plan.get("outlier_query", {})
+                            outlier_df = execute_read_only_sql(outlier_config.get("sql", ""), data_path, use_global_filters)
+                            if len(outlier_df) > 0:
+                                collected_data_markdown += f"### Outliers / Summary ({outlier_config.get('title')})\n{outlier_df.head(20).to_markdown(index=False)}\n\n"
+
+                            if not collected_data_markdown:
+                                raise ValueError("Queries returned no data based on the current filters.")
+
+                            # 3. 撰写报告 (Summarizer)
+                            with st.spinner("Agent is analyzing the data and writing the report..."):
+                                report_text = generate_analysis_report(prompt, collected_data_markdown)
+                            
+                            # 4. UI 渲染：先输出报告，再渲染图表
+                            st.markdown(report_text)
+                            
+                            # 尝试构建图表
+                            fig = None
+                            if not chart_df.empty and "x_axis" in chart_config:
+                                chart_type = chart_config.get("chart_type", "line")
+                                x_col = chart_config.get("x_axis")
+                                y_bars = chart_config.get("y_axis_bars", [])
+                                y_lines = chart_config.get("y_axis_lines", [])
+                                
+                                fig = make_subplots(specs=[[{"secondary_y": True}]])
+                                for y_col in y_bars:
+                                    if y_col in chart_df.columns:
+                                        fig.add_trace(go.Bar(x=chart_df[x_col].astype(str), y=chart_df[y_col], name=y_col), secondary_y=False)
+                                for y_col in y_lines:
+                                    if y_col in chart_df.columns:
+                                        fig.add_trace(go.Scatter(x=chart_df[x_col].astype(str), y=chart_df[y_col], name=y_col, mode='lines+markers'), secondary_y=True if chart_type == "combo" else False)
+                                        
+                                fig.update_layout(title=chart_config.get("title"), barmode='group', hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                                st.plotly_chart(fig, width="stretch")
+
+                            # 5. 保存到状态
+                            msg_to_save = {"role": "assistant", "content": report_text}
+                            if fig:
+                                msg_to_save["fig"] = fig
+                            st.session_state.messages.append(msg_to_save)
+
+                        except Exception as e:
+                            err_msg = f"**Analysis Execution Error:** `{str(e)}`"
+                            st.error(err_msg)
+                            st.session_state.messages.append({"role": "assistant", "content": err_msg})
+
             # Step D: General Chat Fallback
             elif intent == "GENERAL_CHAT":
                 resp_text = "I am ready to help you analyze mortality data. Try asking me a data question like 'Show me a bar chart of total death count by sex'."
