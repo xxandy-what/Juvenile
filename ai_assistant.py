@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from typing import Optional
+from typing import Optional, Any, Dict
 from plotly.subplots import make_subplots
 from google import genai
 from google.genai import types
@@ -750,10 +750,13 @@ def render_ai_assistant_tab(schema_context: str) -> None:
                                     key=f"dl_report_current_{len(st.session_state.messages)}"
                                 )
 
-                            # 5. 保存到状态
-                            msg_to_save = {"role": "assistant", "content": report_text}
+                            # 5. 保存到状态 (包含 detailed_report)
+                            msg_to_save: Dict[str, Any] = {
+                                "role": "assistant", 
+                                "content": report_text
+                            }
                             if figs:
-                                msg_to_save["figs"] = figs # 保存图表列表
+                                msg_to_save["figs"] = figs
                             if detailed_text:
                                 msg_to_save["detailed_report"] = detailed_text
                                 
