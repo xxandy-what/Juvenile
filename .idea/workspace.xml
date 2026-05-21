@@ -5,17 +5,43 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="29f83b1e-a4da-43bf-b310-7cc71da36de5" name="Changes" comment="Create dashboard file">
-      <change afterPath="$PROJECT_DIR$/.devcontainer/devcontainer.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Juvenile_lab.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/Juvenile.iml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/appv1.py" beforeDir="false" afterPath="$PROJECT_DIR$/appv1.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/appv3.py" beforeDir="false" afterPath="$PROJECT_DIR$/appv3.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_ae_Age_Ind_by_Sex.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_ae_Attained_Age_Band_by_Duration_Band.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_ae_Insurance_Plan_Group_by_Face_Band_Group.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_ae_Issue_Age_Band_by_Duration_Band.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_categorical_association_matrix.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_combined_screen_scoreboard.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_expected_Age_Ind_by_Sex.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_expected_Attained_Age_Band_by_Duration_Band.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_expected_Insurance_Plan_Group_by_Face_Band_Group.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_expected_Issue_Age_Band_by_Duration_Band.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_extratrees_feature_importance.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_gbm_feature_importance.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_numeric_dependence_matrix.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_screen_results.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session2_univariate_screen.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session3_model_cards.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session3_model_comparison.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_age_ind.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_attained_age_band.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_duration_band.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_face_band.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_face_group.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_issue_age_band.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_plan.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_plan_group.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_sex.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_full_refit_by_year.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_modeled_sheet_actual_ageind_0_sex_M.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_modeled_sheet_pred_ageind_0_sex_M.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_modeled_sheet_vbt_ageind_0_sex_M.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_monotonicity_duration.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_monotonicity_issue_age.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_overall_validation_full_refit.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_selected_holdout_summary.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_summary_points.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_validation_basis_note.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/script/model_outputs/session4_worst_segments.csv" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -33,7 +59,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="appv3" />
+        <entry key="$PROJECT_DIR$" value="Juvi_Lab/phase_1" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -79,7 +105,7 @@
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "Merging master",
+    "git-widget-placeholder": "Juvi__Lab/phase__1",
     "ignore.virus.scanning.warn.message": "true",
     "junie.onboarding.icon.badge.shown": "true",
     "last_opened_file_path": "C:/Users/sober/PycharmProjects/Juvenile",
@@ -149,7 +175,15 @@
       <option name="project" value="LOCAL" />
       <updated>1779372532549</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="Create dashboard file">
+      <option name="closed" value="true" />
+      <created>1779375156730</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1779375156730</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
