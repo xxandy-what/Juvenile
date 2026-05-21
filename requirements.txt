@@ -9,3 +9,4 @@ statsmodels
 IPyKernel
 scikit-learn
 google-genai
+tabulate

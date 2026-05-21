@@ -16,6 +16,35 @@ This document tracks major architectural decisions, version changes, and develop
 
 ## 3. Change Log
 
+### [2026-05-06] Phase 10: Agentic Data Analysis & Automated Reporting (Major Overhaul)
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - **Autonomous Agent Pipeline**: Implemented a two-pass LLM architecture (Planner & Summarizer) to handle broad, exploratory questions (e.g., "What can you tell me about Duration?").
+  - **Resilient API Integration**: Introduced `safe_llm_call` to automatically retry failed API requests (such as `503 UNAVAILABLE` and `429` rate limits) using exponential backoff, ensuring UI stability.
+  - **Advanced Visualization Logic**:
+    - Enforced the "Actuarial Gold Standard" charting rule (A/E ratios always paired with Death/Exposure Volumes).
+    - Added multi-chart generation support (`charts` array) to handle metrics with vastly different scales seamlessly.
+    - Enforced strict SQL pivoting (`CASE WHEN`) to eliminate Plotly "sawtooth" chart rendering anomalies.
+  - **Deep Analysis Capabilities**:
+    - Added correlation analysis using DuckDB's `CORR()` function for statistical insights.
+    - Implemented an exploratory "Dashboard" mode (Scenario D) that dynamically generates 3 diverse charts for open-ended single-dimension queries.
+    - Injected conversational memory (`chat_history`) into the Agentic Planner to support context-aware follow-up analysis.
+
+---
+
+### [2026-05-05] Phase 10: Agentic Data Analysis & Automated Reporting
+
+- **Status**: Completed
+- **Author**: [SeanChen327]
+- **Key Changes**:
+  - **Autonomous Agent Pipeline**: Implemented a two-pass LLM architecture (Planner & Summarizer) to handle broad, exploratory questions (e.g., "What is the trend of Duration?").
+  - **Intent Routing Update**: Added `DATA_ANALYSIS` intent to `parse_user_intent` for routing open-ended analytical queries.
+  - **Dynamic Report & Visualization**: The Agent autonomously writes DuckDB SQL, fetches aggregated data, renders a Plotly chart, and generates a comprehensive textual analysis report directly in the chat UI.
+
+---
+
 ### [2026-05-04] Phase 9: Conversational Memory & Multi-turn Context
 
 - **Status**: Completed
