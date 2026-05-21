@@ -9,6 +9,8 @@
           <option value="statsmodels" />
           <option value="scikit-learn" />
           <option value="lightgbm" />
+          <option value="streamlit" />
+          <option value="plotly" />
         </list>
       </option>
     </inspection_tool>
