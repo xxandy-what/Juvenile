@@ -1,0 +1,14 @@
+[tool.ruff]
+# Instruct Ruff to skip these files and directories during linting
+exclude = [
+    "Juvenile_lab_mortality.ipynb",
+    "*.ipynb",  # Ignore all current and future Jupyter Notebooks
+    "venv",
+    ".venv"
+]
+
+[tool.mypy]
+# Instruct Mypy to ignore these files during static type checking
+exclude = [
+    "Juvenile_lab_mortality\\.ipynb$"
+]

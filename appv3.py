@@ -8,7 +8,18 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from ai_assistant import render_ai_assistant_tab
 from plotly.subplots import make_subplots
+from utils import safe_div, sql_ident
+
+
+# ---------------------------
+# Gemini API Setup
+# ---------------------------
+# Safely fetch the API key from Streamlit secrets
+if "GEMINI_API_KEY" not in st.secrets:
+    st.error("Lack of API Key: Please configure GEMINI_API_KEY in .streamlit/secrets.toml.")
+    st.stop()
 
 st.set_page_config(page_title="Predicted Mortality Explorer", layout="wide")
 
@@ -242,21 +253,10 @@ def human(col: str) -> str:
     return FRIENDLY.get(col, col)
 
 
-def safe_div(n: pd.Series, d: pd.Series) -> pd.Series:
-    d2 = d.replace(0, np.nan)
-    out = n / d2
-    return out.replace([np.inf, -np.inf], np.nan)
-
-
 def safe_filename(text: str) -> str:
     text = re.sub(r"[^\w\-.]+", "_", str(text))
     text = re.sub(r"_+", "_", text).strip("_")
     return text
-
-
-def sql_ident(name: str) -> str:
-    return '"' + str(name).replace('"', '""') + '"'
-
 
 def sql_literal(value) -> str:
     if value is None:
@@ -614,7 +614,9 @@ def natural_text_sort_key(value: str) -> Tuple:
     except Exception:
         pass
     pieces = re.split(r"(\d+)", text)
-    out = []
+    
+    from typing import Any
+    out: List[Any] = []  # 修复点：明确告诉 Mypy 这是一个混合类型列表
     for piece in pieces:
         if piece.isdigit():
             out.append(int(piece))
@@ -705,8 +707,8 @@ def describe_source(path: str, nrows: Optional[int]) -> pd.DataFrame:
 def row_count_source(path: str, nrows: Optional[int]) -> int:
     con = duckdb.connect()
     src = source_sql(path, nrows)
-    return int(con.execute(f"SELECT COUNT(*) AS n FROM {src}").fetchone()[0])
-
+    row = con.execute(f"SELECT COUNT(*) AS n FROM {src}").fetchone()
+    return int(row[0]) if row else 0  # 修复点：安全取值
 
 @st.cache_data(show_spinner=False)
 def category_options_query(path: str, nrows: Optional[int], col: str) -> List[str]:
@@ -715,13 +717,16 @@ def category_options_query(path: str, nrows: Optional[int], col: str) -> List[st
     expr = filter_value_expr_sql(col)
     sql = f"SELECT DISTINCT {expr} AS v FROM {src} ORDER BY 1"
     vals = [row[0] for row in con.execute(sql).fetchall() if row[0] is not None]
-    display = [label_display_value(col, v) if col in {'Age_Ind', 'Face_Amount_Band', 'Face_Amount_Band_Label'} else str(v) for v in vals]
-    display = sort_display_values(col, list(dict.fromkeys(display)))
-    null_count = con.execute(f"SELECT COUNT(*) FROM {src} WHERE ({expr}) IS NULL").fetchone()[0]
+    
+    # 修复点：强制转换为纯字符串，并过滤 None
+    display_raw = [label_display_value(col, v) if col in {'Age_Ind', 'Face_Amount_Band', 'Face_Amount_Band_Label'} else str(v) for v in vals]
+    display = sort_display_values(col, list(dict.fromkeys([str(x) for x in display_raw if x is not None])))
+    
+    row = con.execute(f"SELECT COUNT(*) FROM {src} WHERE ({expr}) IS NULL").fetchone()
+    null_count = row[0] if row else 0
     if null_count > 0:
         return ["(Missing)"] + display
     return display
-
 
 @st.cache_data(show_spinner=False)
 def category_options_filtered_query(
@@ -737,13 +742,17 @@ def category_options_filtered_query(
     expr = filter_value_expr_sql(col)
     sql = f"SELECT DISTINCT {expr} AS v FROM {src}{where_sql} ORDER BY 1"
     vals = [row[0] for row in con.execute(sql).fetchall() if row[0] is not None]
-    display = [label_display_value(col, v) if col in {'Age_Ind', 'Face_Amount_Band', 'Face_Amount_Band_Label'} else str(v) for v in vals]
-    display = sort_display_values(col, list(dict.fromkeys(display)))
-    null_count = con.execute(f"SELECT COUNT(*) FROM {src}{where_sql} AND ({expr}) IS NULL" if where_sql else f"SELECT COUNT(*) FROM {src} WHERE ({expr}) IS NULL").fetchone()[0]
+    
+    # 修复点：强制转换为纯字符串，并过滤 None
+    display_raw = [label_display_value(col, v) if col in {'Age_Ind', 'Face_Amount_Band', 'Face_Amount_Band_Label'} else str(v) for v in vals]
+    display = sort_display_values(col, list(dict.fromkeys([str(x) for x in display_raw if x is not None])))
+    
+    count_sql = f"SELECT COUNT(*) FROM {src}{where_sql} AND ({expr}) IS NULL" if where_sql else f"SELECT COUNT(*) FROM {src} WHERE ({expr}) IS NULL"
+    row = con.execute(count_sql).fetchone()
+    null_count = row[0] if row else 0
     if null_count > 0:
         return ["(Missing)"] + display
     return display
-
 
 @st.cache_data(show_spinner=False)
 def numeric_bounds_query(path: str, nrows: Optional[int], col: str) -> Tuple[Optional[float], Optional[float]]:
@@ -751,9 +760,11 @@ def numeric_bounds_query(path: str, nrows: Optional[int], col: str) -> Tuple[Opt
     src = source_sql(path, nrows)
     ident = sql_ident(col)
     sql = f"SELECT MIN(TRY_CAST({ident} AS DOUBLE)), MAX(TRY_CAST({ident} AS DOUBLE)) FROM {src} WHERE TRY_CAST({ident} AS DOUBLE) IS NOT NULL"
-    lo, hi = con.execute(sql).fetchone()
+    res = con.execute(sql).fetchone()
+    if not res:  # 修复点：拦截 None
+        return None, None
+    lo, hi = res
     return (None if lo is None else float(lo), None if hi is None else float(hi))
-
 
 @st.cache_data(show_spinner=False)
 def filtered_row_count_query(
@@ -765,8 +776,8 @@ def filtered_row_count_query(
     con = duckdb.connect()
     src = source_sql(path, nrows)
     where_sql = build_where_sql(cat_filters_frozen, num_ranges_frozen)
-    return int(con.execute(f"SELECT COUNT(*) AS n FROM {src}{where_sql}").fetchone()[0])
-
+    row = con.execute(f"SELECT COUNT(*) AS n FROM {src}{where_sql}").fetchone()
+    return int(row[0]) if row else 0  # 修复点：安全取值
 
 @st.cache_data(show_spinner=False)
 def filtered_preview_query(
@@ -1200,8 +1211,39 @@ def render_welcome_tab(source_name: str, data_path: str, available_columns: List
 
     with st.expander("Field reference", expanded=False):
         dict_rows = [{"Field": c, "Friendly": human(c), "Note": FIELD_NOTES.get(c, "")} for c in available_columns]
-        st.dataframe(pd.DataFrame(dict_rows), use_container_width=True, hide_index=True, height=420)
+        st.dataframe(pd.DataFrame(dict_rows), width="stretch", hide_index=True, height=420)
 
+def build_dynamic_schema_context(path: str, nrows: Optional[int], available_columns: List[str]) -> str:
+    """
+    [Phase 8] Dynamically scans the database to build an accurate schema prompt for the LLM.
+    """
+    lines = []
+    
+    # 1. 扫描分类列 (Categorical)
+    lines.append("Categorical Columns (Use for GROUP BY or WHERE):")
+    cat_cols = [c for c in available_columns if c in CAT_COLUMNS]
+    for col in cat_cols:
+        # 获取最新的去重选项
+        opts = category_options_query(path, nrows, col)
+        # 剔除界面专用的 "(Missing)" 占位符
+        opts_clean = [str(x) for x in opts if str(x) != "(Missing)"]
+        lines.append(f"- {col} ({', '.join(opts_clean)})")
+
+    # 2. 扫描数值列 (Numeric)
+    lines.append("\nNumeric Columns (Use for aggregations or filtering ranges):")
+    num_cols = [c for c in available_columns if c in NUM_COLUMNS]
+    for col in num_cols:
+        # 获取最新的最大最小值
+        lo, hi = numeric_bounds_query(path, nrows, col)
+        if lo is not None and hi is not None:
+            if col in INT_FIELDS:
+                lines.append(f"- {col} (Range: {int(lo)} to {int(hi)})")
+            else:
+                lines.append(f"- {col} (Range: {float(lo):.2f} to {float(hi):.2f})")
+        else:
+            lines.append(f"- {col}")
+
+    return "\n".join(lines)
 
 def render_preliminary_filters_tab(
     path: str,
@@ -1222,8 +1264,7 @@ def render_preliminary_filters_tab(
     filter_cols = st.multiselect(
         "Fields to filter",
         options=candidate_filter_cols,
-        default=st.session_state.get("working_filter_cols", default_filter_cols),
-        key="working_filter_cols",
+        key="working_filter_cols", # Streamlit automatically uses the session state value as the default
     )
 
     with st.form("preliminary_filters_form"):
@@ -1256,14 +1297,14 @@ def render_preliminary_filters_tab(
                             value=(int(round(current_lo)), int(round(current_hi))),
                             step=1,
                             key=f"pre_num_{col}",
-                        )
+                        ) # type: ignore
                         num_ranges[col] = (float(val[0]), float(val[1]))
                     else:
                         val = st.slider(
                             f"{human(col)} range",
-                            min_value=float(lo),
-                            max_value=float(hi),
-                            value=(float(current_lo), float(current_hi)),
+                            min_value=float(lo), # type: ignore
+                            max_value=float(hi), # type: ignore
+                            value=(float(current_lo), float(current_hi)), # type: ignore
                             key=f"pre_num_{col}",
                         )
                         num_ranges[col] = (float(val[0]), float(val[1]))
@@ -1360,7 +1401,7 @@ def render_preliminary_filters_tab(
         )
         preview_n = st.slider("Preview rows", 10, 200, 50, 10, key="preview_rows_working")
         preview_df = filtered_preview_query(path, nrows, tuple(preview_cols), preview_n, cat_frozen, num_frozen)
-        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+        st.dataframe(preview_df, width="stretch", hide_index=True)
 
     with st.expander("Download working dataset", expanded=False):
         st.caption("To keep the app stable, this download is capped. Increase the cap only when needed.")
@@ -1463,7 +1504,7 @@ def render_pivot_tab(
         return
 
     pt_display = format_pivot_for_display(pt_show)
-    st.dataframe(pt_display, use_container_width=True, hide_index=False, height=520)
+    st.dataframe(pt_display, width="stretch", hide_index=False, height=520)
     st.download_button(
         "Download pivot (.csv)",
         data=df_to_csv_bytes(pt_show.reset_index(drop=False)),
@@ -1730,7 +1771,7 @@ def render_analysis_tab(
                 x_title=payload["x_title"],
                 height=payload["height"],
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         except Exception as exc:
             st.error(f"This tab could not render the saved chart output: {exc}")
             return
@@ -1805,9 +1846,10 @@ if (
         st.session_state.pop(f"chart_error_{label}", None)
     st.session_state["pivot_table_duck"] = pd.DataFrame()
 
-welcome_tab, tab_prelim, tab_pivot, tab_obs, tab_issue_year, tab_issue, tab_dur, tab_att, tab_face = st.tabs(
+welcome_tab, tab_ai, tab_prelim, tab_pivot, tab_obs, tab_issue_year, tab_issue, tab_dur, tab_att, tab_face = st.tabs(
     [
         "Welcome",
+        "AI Assistant",
         "Preliminary filters",
         "Pivot table",
         "Observation Year",
@@ -1821,6 +1863,12 @@ welcome_tab, tab_prelim, tab_pivot, tab_obs, tab_issue_year, tab_issue, tab_dur,
 
 with welcome_tab:
     safe_render_tab("Welcome", lambda: render_welcome_tab(source_name, data_path, available_columns))
+
+with tab_ai:
+    # 1. 实时构建动态 Schema 文本
+    dynamic_schema = build_dynamic_schema_context(data_path, data_nrows, available_columns)
+    # 2. 使用 lambda 函数将参数安全地传递给渲染器
+    safe_render_tab("AI Assistant", lambda: render_ai_assistant_tab(dynamic_schema))
 
 with tab_prelim:
     safe_render_tab(
